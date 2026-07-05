@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BelAir Review</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">BelAir&nbsp;Review</div>
+    <div id="target-info" title=""></div>
+    <div class="nav">
+      <button id="btn-prev" title="Previous step (←)">←&nbsp;Prev</button>
+      <span id="progress">Loading…</span>
+      <button id="btn-next" title="Next step (→)">Next&nbsp;→</button>
+    </div>
+  </header>
+
+  <div id="layout">
+    <aside id="sidebar" aria-label="All steps"></aside>
+
+    <main id="main">
+      <div id="step-header">
+        <span id="step-file" class="mono"></span>
+        <span id="step-lines" class="mono dim"></span>
+        <span id="step-kind" class="badge"></span>
+        <span id="step-symbol" class="mono dim"></span>
+      </div>
+
+      <div id="editors">
+        <div id="editor-plain" class="editor"></div>
+        <div id="editor-diff" class="editor" hidden></div>
+      </div>
+
+      <div id="comment-box">
+        <label for="comment">
+          Your comment on this step
+          <span id="save-state" class="dim"></span>
+        </label>
+        <textarea id="comment" rows="3"
+          placeholder="Type your review comment for this step — saved automatically to comments.json"></textarea>
+      </div>
+    </main>
+  </div>
+
+  <div id="error-banner" hidden></div>
+
+  <script src="/vendor/monaco/vs/loader.js"></script>
+  <script>
+    require.config({ paths: { vs: '/vendor/monaco/vs' } });
+    require(['vs/editor/editor.main'], function () {
+      window.__monacoReady = true;
+      if (window.__startApp) window.__startApp();
+    });
+  </script>
+  <script src="/app.js"></script>
+</body>
+</html>

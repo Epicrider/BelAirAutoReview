@@ -1,0 +1,21 @@
+{
+  "name": "belair-auto-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local interactive code review: generate a review manifest (Claude Skill or Anthropic API), then browse it in a Monaco-based viewer.",
+  "scripts": {
+    "chunk": "node bin/chunk.js",
+    "manifest": "node bin/write-manifest.js",
+    "generate": "node bin/generate-manifest.js",
+    "view": "node viewer/server.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "@vscode/tree-sitter-wasm": "^0.3.1",
+    "monaco-editor": "^0.55.1"
+  }
+}
