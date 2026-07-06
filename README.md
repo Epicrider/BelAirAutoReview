@@ -212,3 +212,5 @@ BelAirAutoReview (this repo)
   directory without `.review/manifest.json`; pass the manifest path explicitly.
 - **`ANTHROPIC_API_KEY` unset** — only the standalone script needs it; the
   skill path uses your agent session (Claude Code or Cursor) and needs no key.
+- **Publish to PR does nothing** — publishing is only available for PR-mode
+  manifests and needs `gh` authenticated for the PR's host.
