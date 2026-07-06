@@ -91,12 +91,22 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 #sidebar {
   width: 300px;
+  min-width: 160px;
+  max-width: 640px;
   flex: none;
   overflow-y: auto;
   background: var(--panel);
   border-right: 1px solid var(--border);
   padding: 8px 0 24px;
 }
+
+/* drag handles for resizing the sidebar (x) and comment area (y) */
+.resizer { flex: none; background: transparent; z-index: 4; }
+.resizer:hover, .resizer:active { background: var(--accent); }
+.resizer-x { width: 6px; cursor: col-resize; margin: 0 -3px; }
+.resizer-y { height: 6px; cursor: row-resize; margin: -3px 0; }
+body.resizing-x, body.resizing-x * { cursor: col-resize !important; user-select: none; }
+body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select: none; }
 .file-group { margin-bottom: 8px; }
 .file-name {
   padding: 8px 12px 4px;
@@ -210,12 +220,17 @@ body.dark .belair-added-gutter { background: rgba(34, 197, 94, 0.8); }
 /* ---------- comment box ---------- */
 #comment-box {
   flex: none;
+  height: 140px;
+  min-height: 70px;
+  display: flex;
+  flex-direction: column;
   padding: 8px 14px 12px;
   background: var(--panel);
   border-top: 1px solid var(--border);
 }
 #comment-box label {
   display: block;
+  flex: none;
   font-size: 12px;
   font-weight: 600;
   color: var(--dim);
@@ -223,9 +238,10 @@ body.dark .belair-added-gutter { background: rgba(34, 197, 94, 0.8); }
 }
 #save-state { font-weight: 400; margin-left: 8px; }
 #comment {
+  flex: 1;
   width: 100%;
-  resize: vertical;
-  min-height: 56px;
+  resize: none;
+  min-height: 40px;
   font: inherit;
   color: var(--text);
   background: var(--bg);

@@ -18,8 +18,11 @@
   };
 
   const DIFF_LAYOUT_KEY = 'belair.diffLayout';
+  const SIDEBAR_W_KEY = 'belair.sidebarWidth';
+  const COMMENT_H_KEY = 'belair.commentHeight';
 
   const $ = (id) => document.getElementById(id);
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
   function escapeHtml(s) {
     return String(s)
@@ -143,6 +146,79 @@
     }
     // Re-render the current step so view-zone alignment matches the new layout.
     if (rerender && state.manifest) showStep(state.idx);
+  }
+
+  // ---------- resizable panels ----------
+  // Drag the handle between the sidebar and code (x) or between the code and
+  // comment box (y). Sizes are clamped and persisted; Monaco relayouts itself
+  // (automaticLayout), and we re-render the step so the description zone is
+  // re-measured for the new width.
+  function makeDrag(handle, axis, apply, getStart, storageKey) {
+    if (!handle) return;
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+      const startPos = axis === 'x' ? e.clientX : e.clientY;
+      const startSize = getStart();
+      let lastSize = startSize;
+      document.body.classList.add(axis === 'x' ? 'resizing-x' : 'resizing-y');
+      const move = (ev) => {
+        const delta = (axis === 'x' ? ev.clientX : ev.clientY) - startPos;
+        lastSize = apply(delta, startSize);
+      };
+      const up = () => {
+        handle.releasePointerCapture(e.pointerId);
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        document.body.classList.remove('resizing-x', 'resizing-y');
+        try {
+          localStorage.setItem(storageKey, String(Math.round(lastSize)));
+        } catch {
+          /* storage disabled */
+        }
+        if (state.manifest) showStep(state.idx);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+    });
+  }
+
+  function initResizers() {
+    const sidebar = $('sidebar');
+    const commentBox = $('comment-box');
+    try {
+      const w = parseInt(localStorage.getItem(SIDEBAR_W_KEY), 10);
+      if (w) sidebar.style.width = clamp(w, 160, 640) + 'px';
+      const h = parseInt(localStorage.getItem(COMMENT_H_KEY), 10);
+      if (h) commentBox.style.height = clamp(h, 70, 600) + 'px';
+    } catch {
+      /* storage disabled */
+    }
+
+    makeDrag(
+      $('sidebar-resizer'),
+      'x',
+      (dx, start) => {
+        const w = clamp(start + dx, 160, Math.min(640, window.innerWidth - 320));
+        sidebar.style.width = w + 'px';
+        return w;
+      },
+      () => sidebar.getBoundingClientRect().width,
+      SIDEBAR_W_KEY
+    );
+
+    makeDrag(
+      $('comment-resizer'),
+      'y',
+      (dy, start) => {
+        const max = Math.max(70, $('main').getBoundingClientRect().height - 160);
+        const h = clamp(start - dy, 70, max); // drag up grows the comment area
+        commentBox.style.height = h + 'px';
+        return h;
+      },
+      () => commentBox.getBoundingClientRect().height,
+      COMMENT_H_KEY
+    );
   }
 
   // ---------- description view zone ----------
@@ -431,6 +507,7 @@
     $('target-info').title = manifest.generatedAt ? `generated ${manifest.generatedAt}` : '';
 
     buildSidebar();
+    initResizers();
 
     $('btn-prev').addEventListener('click', () => showStep(state.idx - 1));
     $('btn-next').addEventListener('click', () => showStep(state.idx + 1));
