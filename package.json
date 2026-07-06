@@ -8,6 +8,7 @@
     "chunk": "node bin/chunk.js",
     "manifest": "node bin/write-manifest.js",
     "generate": "node bin/generate-manifest.js",
+    "stats": "node bin/stats.js",
     "view": "node viewer/server.js"
   },
   "engines": {

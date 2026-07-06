@@ -48,6 +48,16 @@ ln -s /Users/omarh/Documents/Repos/BelAirAutoReview/skills/code-review-manifest 
       ~/.claude/skills/code-review-manifest
 ```
 
+### Sanity-checking a large diff
+
+Before writing descriptions for every chunk, `bin/stats.js` prints a quick
+breakdown of `chunks.json` (or a finished `manifest.json`) by change kind and
+language — handy for spotting a diff that's much bigger than expected:
+
+```sh
+node bin/stats.js .review/chunks.json
+```
+
 ## Phase 1a — generate via the skill (inside Claude Code)
 
 Open Claude Code **in the repository you want to review** and ask for a review
