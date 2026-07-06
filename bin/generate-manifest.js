@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Standalone end-to-end manifest generation — no Claude Code session needed.
+// Standalone end-to-end manifest generation — no agent session needed.
 // Chunks the diff mechanically (same code path as the skill), then calls the
 // Anthropic API to write per-chunk descriptions and a comprehension-optimized
 // reading order, and writes the same manifest.json the skill produces.
