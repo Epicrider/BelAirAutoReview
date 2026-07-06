@@ -11,6 +11,8 @@
   <header id="topbar">
     <div class="brand">BelAir&nbsp;Review</div>
     <div id="target-info" title=""></div>
+    <button id="btn-publish" hidden
+      title="Post your comments to the PR as review comments">Publish to PR</button>
     <div id="diff-layout" class="segmented" role="group" aria-label="Diff layout" hidden>
       <button id="btn-side-by-side" class="seg-btn" data-layout="side-by-side"
         title="Side-by-side diff">Side&#8209;by&#8209;side</button>
@@ -63,6 +65,7 @@
   </div>
 
   <div id="error-banner" hidden></div>
+  <div id="toast" hidden></div>
 
   <script src="/vendor/monaco/vs/loader.js"></script>
   <script>

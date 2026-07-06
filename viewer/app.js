@@ -39,6 +39,18 @@
     el.hidden = false;
   }
 
+  let toastTimer = null;
+  function showToast(msg, kind) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.className = kind || '';
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      el.hidden = true;
+    }, 7000);
+  }
+
   // ---------- theme ----------
   // Custom themes strengthen the diff add/remove backgrounds (both the whole
   // line and the inline character ranges) so changes are unmistakable in the
@@ -496,6 +508,45 @@
     }
   }
 
+  // ---------- publish to PR ----------
+  async function publishToPr() {
+    const btn = $('btn-publish');
+    const count = Object.values(state.comments).filter((t) => t && t.trim()).length;
+    if (count === 0) {
+      showToast('No comments to publish yet.', 'error');
+      return;
+    }
+    const target = (state.manifest.source && state.manifest.source.target) || 'the PR';
+    if (
+      !confirm(
+        `Post ${count} comment(s) to ${target} as PR review comments?\nThis creates real comments on GitHub.`
+      )
+    ) {
+      return;
+    }
+    const prevText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Publishing…';
+    try {
+      const res = await fetch('/api/publish', { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      const fileLevel = body.results.filter((r) => r.status === 'posted-file').length;
+      let msg = `Published ${body.posted} comment(s) to ${body.target}.`;
+      if (fileLevel) msg += `\n${fileLevel} posted at file level (line was outside the PR diff).`;
+      if (body.failed) {
+        msg += `\n${body.failed} failed — see the browser console for details.`;
+        console.warn('Publish failures:', body.results.filter((r) => r.status === 'failed'));
+      }
+      showToast(msg, body.failed ? 'error' : 'success');
+    } catch (err) {
+      showToast(`Publish failed: ${err.message}`, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prevText;
+    }
+  }
+
   // ---------- init ----------
   async function init() {
     applyTheme();
@@ -536,6 +587,13 @@
       : '';
     $('target-info').textContent = target;
     $('target-info').title = manifest.generatedAt ? `generated ${manifest.generatedAt}` : '';
+
+    // Publishing to a PR is only meaningful for a PR-mode manifest.
+    if (manifest.source && manifest.source.mode === 'pr') {
+      const pubBtn = $('btn-publish');
+      pubBtn.hidden = false;
+      pubBtn.addEventListener('click', publishToPr);
+    }
 
     buildSidebar();
     initResizers();
