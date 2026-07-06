@@ -179,6 +179,12 @@ async function collectWorking(cwd) {
   };
 }
 
+// Git's well-known hash for the empty tree — diffing against it shows
+// everything a ref contains, including root commits with no parent to diff
+// against normally. "empty" is accepted as a friendly alias for this.
+const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const isEmptyTreeAlias = (ref) => ref.trim().toLowerCase() === 'empty' || ref.trim() === EMPTY_TREE_SHA;
+
 async function collectRange(rangeArg, cwd) {
   const root = (await git(['rev-parse', '--show-toplevel'], cwd)).trim();
   let base;
@@ -187,7 +193,7 @@ async function collectRange(rangeArg, cwd) {
   if (rangeArg.includes('...')) {
     const [a, b] = rangeArg.split('...');
     head = b || 'HEAD';
-    base = (await git(['merge-base', a, head], root)).trim();
+    base = isEmptyTreeAlias(a) ? EMPTY_TREE_SHA : (await git(['merge-base', a, head], root)).trim();
   } else if (rangeArg.includes('..')) {
     const [a, b] = rangeArg.split('..');
     base = a;
@@ -198,7 +204,9 @@ async function collectRange(rangeArg, cwd) {
     base = (await git(['merge-base', rangeArg, 'HEAD'], root)).trim();
     display = `${rangeArg}...HEAD`;
   }
-  const baseSha = (await git(['rev-parse', '--verify', `${base}^{commit}`], root)).trim();
+  const baseSha = isEmptyTreeAlias(base)
+    ? EMPTY_TREE_SHA
+    : (await git(['rev-parse', '--verify', `${base}^{commit}`], root)).trim();
   const headSha = (await git(['rev-parse', '--verify', `${head}^{commit}`], root)).trim();
   const diffText = await git(
     ['diff', '--no-color', '--no-ext-diff', '--find-renames', baseSha, headSha],
@@ -208,9 +216,18 @@ async function collectRange(rangeArg, cwd) {
     files: parseUnifiedDiff(diffText),
     source: {
       readNew: (file) => git(['show', `${headSha}:${file}`], root),
-      readOld: (file) => git(['show', `${baseSha}:${file}`], root),
+      readOld: (file) => {
+        if (baseSha === EMPTY_TREE_SHA) return Promise.reject(new Error('no old version (empty tree)'));
+        return git(['show', `${baseSha}:${file}`], root);
+      },
     },
-    meta: { mode: 'range', target: display, base: baseSha, head: headSha, root },
+    meta: {
+      mode: 'range',
+      target: display,
+      base: baseSha === EMPTY_TREE_SHA ? '(empty tree)' : baseSha,
+      head: headSha,
+      root,
+    },
   };
 }
 

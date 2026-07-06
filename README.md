@@ -66,7 +66,9 @@ manifest, naming the target:
 - *"Prepare a review manifest for my uncommitted changes"* → working-tree diff
 - *"Prepare a review manifest for `main...feature/foo`"* → commit range
   (`A...B` = changes on B since the merge base, like a PR; `A..B` = plain diff;
-  a single ref means `ref...HEAD`)
+  a single ref means `ref...HEAD`; `empty` is a valid ref on either side and
+  means the git empty tree — use `--range "empty...HEAD"` to review everything
+  a ref contains from scratch, e.g. a repo's initial/root commit)
 - *"Prepare a review manifest for PR 123"* or a full PR URL → GitHub PR via `gh`
 
 Claude runs the chunking script, writes the descriptions and reading order

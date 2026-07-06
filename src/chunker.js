@@ -339,7 +339,11 @@ export async function chunkFiles(files, source) {
         ranges = [{ start: 1, end: lineCount, structural: false }];
       } else {
         segmentSpan(tree.rootNode, nodeTypes, 1, lineCount, ranges);
-        ranges = absorbTinyRanges(mergeRanges(ranges));
+        // segmentSpan already returns a contiguous, non-overlapping partition
+        // of the whole file — mergeRanges would just weld every adjacent
+        // function/class back into one chunk. Only fold genuinely tiny
+        // gap-filler ranges (stray blank lines) into a neighbor.
+        ranges = absorbTinyRanges(ranges);
       }
     } else {
       const regions = changedRegions(file.hunks, lineCount);

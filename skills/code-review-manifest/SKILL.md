@@ -25,7 +25,7 @@ Three supported targets:
 | Target | Flag |
 |---|---|
 | Uncommitted changes (working tree vs HEAD, incl. untracked files) | `--working` |
-| Commit range | `--range "A...B"` (also `A..B`; a single ref means `ref...HEAD`) |
+| Commit range | `--range "A...B"` (also `A..B`; a single ref means `ref...HEAD`; `empty` is a valid ref on either side, meaning the git empty tree — use `--range "empty...HEAD"` to review everything a ref contains from scratch, e.g. a repo's initial commit) |
 | GitHub PR | `--pr <number|url>` (add `--repo owner/repo` when not inside a checkout of that repo; requires an authenticated `gh` CLI) |
 
 **Ask the user instead of guessing** when the target is ambiguous — e.g. they said
