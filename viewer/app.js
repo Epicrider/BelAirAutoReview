@@ -243,19 +243,27 @@
   }
 
   function setZone(editor, html) {
+    // Pin the description to the editor's *viewport* width via a sticky inner
+    // wrapper, so it wraps within view (no horizontal scroll even when the code
+    // scrolls) and its measured height matches the rendered height (no dead
+    // space). Measuring at the same fixed width is what keeps the two in sync.
     const layout = editor.getLayoutInfo();
-    const width = (layout.contentWidth || layout.width) - 16;
-    const height = html ? measureHeight(html, width) : 0;
+    const width = Math.max(
+      240,
+      (layout.contentWidth || layout.width) - (layout.verticalScrollbarWidth || 0) - 24
+    );
+    const inner = html ? `<div class="desc-sticky" style="width:${width}px">${html}</div>` : '';
+    const height = inner ? measureHeight(inner, width) : 0;
     editor.changeViewZones((acc) => {
       const prev = state.zoneIds.get(editor);
       if (prev) acc.removeZone(prev);
-      if (!html && !height) {
+      if (!inner) {
         state.zoneIds.delete(editor);
         return;
       }
       const domNode = document.createElement('div');
       domNode.className = 'desc-zone';
-      domNode.innerHTML = html;
+      domNode.innerHTML = inner;
       const id = acc.addZone({ afterLineNumber: 0, heightInPx: height + 8, domNode });
       state.zoneIds.set(editor, id);
     });
@@ -547,6 +555,16 @@
       if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
       if (e.key === 'ArrowRight' || e.key === 'j') showStep(state.idx + 1);
       else if (e.key === 'ArrowLeft' || e.key === 'k') showStep(state.idx - 1);
+    });
+
+    // The description zone's width is fixed in px, so re-render on resize to
+    // re-measure it against the new viewport width.
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (state.manifest) showStep(state.idx);
+      }, 150);
     });
 
     $('comment').addEventListener('input', () => {

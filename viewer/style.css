@@ -206,8 +206,14 @@ body.dark .badge-deleted { color: #f87171; border-color: #f87171; }
 body.dark .belair-added-line { background: rgba(34, 197, 94, 0.16); }
 body.dark .belair-added-gutter { background: rgba(34, 197, 94, 0.8); }
 
-/* description view zone (rendered inside Monaco, above the code) */
-.desc-zone {
+/* description view zone (rendered inside Monaco, above the code). The zone
+   spans the code's scroll width; the sticky inner box stays pinned to the
+   viewport so it wraps in view rather than scrolling with the code. */
+.desc-zone { z-index: 3; }
+.desc-sticky {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   font-size: 13px;
   line-height: 1.45;
@@ -217,9 +223,8 @@ body.dark .belair-added-gutter { background: rgba(34, 197, 94, 0.8); }
   padding: 8px 12px;
   color: var(--text);
   overflow: hidden;
-  z-index: 3;
 }
-.dz-desc { white-space: pre-wrap; }
+.dz-desc { white-space: pre-wrap; overflow-wrap: anywhere; }
 .dz-rationale {
   margin-top: 6px;
   font-size: 12px;
