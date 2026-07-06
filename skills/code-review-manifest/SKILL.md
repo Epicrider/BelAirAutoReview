@@ -1,6 +1,6 @@
 ---
 name: code-review-manifest
-description: Prepare an interactive code-review manifest from a diff — uncommitted changes, a commit range, or a GitHub PR. A script chunks the diff mechanically; Claude then writes per-chunk descriptions and a comprehension-optimized reading order, producing .review/manifest.json for the BelAir review viewer. Use when the user asks to prepare a review manifest, a guided/interactive code review, or to "set up a review" of a diff, branch, or PR.
+description: Prepare an interactive code-review manifest from a diff — uncommitted changes, a commit range, or a GitHub PR. A script chunks the diff mechanically; the agent then writes per-chunk descriptions and a comprehension-optimized reading order, producing .review/manifest.json for the BelAir review viewer. Use when the user asks to prepare a review manifest, a guided/interactive code review, or to "set up a review" of a diff, branch, or PR.
 ---
 
 # code-review-manifest

@@ -12,7 +12,7 @@ There are two independent ways to generate a manifest:
 
 | Path | What writes the descriptions/order | When to use |
 |---|---|---|
-| **Claude Skill** (`code-review-manifest`) | Claude itself, in your Claude Code session | You're already in a Claude Code session |
+| **Agent Skill** (`code-review-manifest`) | The agent itself, in your Claude Code or Cursor session | You're already in an agent session |
 | **Standalone script** (`bin/generate-manifest.js`) | Direct Anthropic API calls | Headless / automated / no session |
 
 Both share the same mechanical chunking code (`src/`) and produce the same
@@ -28,8 +28,9 @@ Both share the same mechanical chunking code (`src/`) and produce the same
 
 ## Setup
 
+Clone this repo, then from its root:
+
 ```sh
-cd /Users/omarh/Documents/Repos/BelAirAutoReview
 npm install
 ```
 
@@ -38,14 +39,35 @@ grammars used for structural chunking, and the Anthropic SDK.
 
 ### Install the skill
 
-Symlink the skill into your personal skills directory so it's available in every
-repo you open with Claude Code (symlink, not copy — the scripts resolve back into
-this repo):
+The skill works in both **Claude Code** and **Cursor** — they use the same
+`SKILL.md` format. It's symlinked (not copied) into each agent's personal skills
+directory so it's available in every repo you open, and so the wrapper scripts
+resolve back into this repo:
 
 ```sh
+npm run install-skill
+```
+
+By default this links into every agent whose home directory exists
+(`~/.claude/skills` and/or `~/.cursor/skills`). Restrict with `--claude` or
+`--cursor`, and pass `--force` to replace an existing non-symlink directory:
+
+```sh
+npm run install-skill -- --cursor          # Cursor only
+npm run install-skill -- --claude --force   # Claude only, replacing any existing dir
+```
+
+Prefer to do it by hand? Symlink the skill directory into the agent(s) you use
+(replace `<repo>` with the absolute path to this repo):
+
+```sh
+# Claude Code
 mkdir -p ~/.claude/skills
-ln -s /Users/omarh/Documents/Repos/BelAirAutoReview/skills/code-review-manifest \
-      ~/.claude/skills/code-review-manifest
+ln -s <repo>/skills/code-review-manifest ~/.claude/skills/code-review-manifest
+
+# Cursor
+mkdir -p ~/.cursor/skills
+ln -s <repo>/skills/code-review-manifest ~/.cursor/skills/code-review-manifest
 ```
 
 ### Sanity-checking a large diff
@@ -58,10 +80,10 @@ language — handy for spotting a diff that's much bigger than expected:
 node bin/stats.js .review/chunks.json
 ```
 
-## Phase 1a — generate via the skill (inside Claude Code)
+## Phase 1a — generate via the skill (inside Claude Code or Cursor)
 
-Open Claude Code **in the repository you want to review** and ask for a review
-manifest, naming the target:
+Open your agent (Claude Code or Cursor) **in the repository you want to review**
+and ask for a review manifest, naming the target:
 
 - *"Prepare a review manifest for my uncommitted changes"* → working-tree diff
 - *"Prepare a review manifest for `main...feature/foo`"* → commit range
@@ -71,9 +93,9 @@ manifest, naming the target:
   a ref contains from scratch, e.g. a repo's initial/root commit)
 - *"Prepare a review manifest for PR 123"* or a full PR URL → GitHub PR via `gh`
 
-Claude runs the chunking script, writes the descriptions and reading order
+The agent runs the chunking script, writes the descriptions and reading order
 itself, and produces `.review/manifest.json` in the reviewed repo. If the target
-is ambiguous, the skill instructs Claude to ask instead of guessing.
+is ambiguous, the skill instructs the agent to ask instead of guessing.
 
 ## Phase 1b — generate via the standalone script (no session)
 
@@ -82,32 +104,32 @@ Run from the repository you want to review (or pass `--cwd`):
 ```sh
 export ANTHROPIC_API_KEY=sk-ant-...
 
-# uncommitted changes
-node /Users/omarh/Documents/Repos/BelAirAutoReview/bin/generate-manifest.js --working
+# uncommitted changes (replace <repo> with the absolute path to this repo)
+node <repo>/bin/generate-manifest.js --working
 
 # commit range
-node .../bin/generate-manifest.js --range "main...feature/foo"
+node <repo>/bin/generate-manifest.js --range "main...feature/foo"
 
 # GitHub PR (needs gh; --repo only when outside a checkout of that repo)
-node .../bin/generate-manifest.js --pr 123 --repo owner/repo
-node .../bin/generate-manifest.js --pr https://github.com/owner/repo/pull/123
+node <repo>/bin/generate-manifest.js --pr 123 --repo owner/repo
+node <repo>/bin/generate-manifest.js --pr https://github.com/owner/repo/pull/123
 ```
 
 Options: `-o <path>` (manifest output, default `.review/manifest.json`),
 `--model <id>` (default `claude-opus-4-8`), `--batch-size <n>` (chunks per
 description request, default 8).
 
-This is a fully separate code path from the skill — it never shells out to
-Claude Code, and the skill never calls the API.
+This is a fully separate code path from the skill — it never shells out to an
+agent, and the skill never calls the API.
 
 ## Phase 2 — browse in the viewer
 
 From the reviewed repo (it picks up `./.review/manifest.json` by default):
 
 ```sh
-node /Users/omarh/Documents/Repos/BelAirAutoReview/viewer/server.js
+node <repo>/viewer/server.js
 # or explicitly:
-node .../viewer/server.js path/to/manifest.json --port 4173
+node <repo>/viewer/server.js path/to/manifest.json --port 4173
 ```
 
 Open http://localhost:4173. The viewer gives you:
@@ -134,7 +156,7 @@ The editor is read-only throughout — this is a review tool, not an editor.
 repo under review
 └── .review/
     ├── chunks.json         mechanical chunking output (no LLM)
-    ├── review-notes.json   skill path only: Claude's descriptions + order
+    ├── review-notes.json   skill path only: the agent's descriptions + order
     ├── manifest.json       final manifest — the viewer's input
     └── comments.json       your comments, keyed by step id
 
@@ -189,4 +211,4 @@ BelAirAutoReview (this repo)
 - **Viewer shows "manifest not found"** — you started the server from a
   directory without `.review/manifest.json`; pass the manifest path explicitly.
 - **`ANTHROPIC_API_KEY` unset** — only the standalone script needs it; the
-  skill path uses your Claude Code session and needs no key.
+  skill path uses your agent session (Claude Code or Cursor) and needs no key.

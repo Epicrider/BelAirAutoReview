@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local interactive code review: generate a review manifest (Claude Skill or Anthropic API), then browse it in a Monaco-based viewer.",
+  "description": "Local interactive code review: generate a review manifest (Agent Skill or Anthropic API), then browse it in a Monaco-based viewer.",
   "scripts": {
     "chunk": "node bin/chunk.js",
     "manifest": "node bin/write-manifest.js",
     "generate": "node bin/generate-manifest.js",
     "stats": "node bin/stats.js",
-    "view": "node viewer/server.js"
+    "view": "node viewer/server.js",
+    "install-skill": "node bin/install-skill.js"
   },
   "engines": {
     "node": ">=18.17"
