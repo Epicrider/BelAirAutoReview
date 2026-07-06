@@ -159,11 +159,14 @@ const EXT_MAP = {
   proto: { monaco: 'proto' },
   vue: { monaco: 'html' },
   svelte: { monaco: 'html' },
+  env: { monaco: 'shell' },
 };
 
 const BASENAME_MAP = {
   dockerfile: { monaco: 'dockerfile' },
   makefile: { monaco: 'plaintext' },
+  '.gitignore': { monaco: 'plaintext' },
+  '.env': { monaco: 'shell' },
 };
 
 let wasmDirCache;
