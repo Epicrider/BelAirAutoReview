@@ -12,8 +12,12 @@
     plainEditor: null,
     diffEditor: null,
     zoneIds: new Map(), // editor → view zone id
+    plainDecorations: null, // added-line highlight in the plain editor
+    diffLayout: 'side-by-side', // 'side-by-side' | 'inline'; persisted
     saveTimer: null,
   };
+
+  const DIFF_LAYOUT_KEY = 'belair.diffLayout';
 
   const $ = (id) => document.getElementById(id);
 
@@ -32,10 +36,54 @@
   }
 
   // ---------- theme ----------
+  // Custom themes strengthen the diff add/remove backgrounds (both the whole
+  // line and the inline character ranges) so changes are unmistakable in the
+  // side-by-side view; they inherit everything else from the stock vs themes.
+  let themesDefined = false;
+  function defineThemes() {
+    if (themesDefined || !window.monaco) return;
+    monaco.editor.defineTheme('belair-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [],
+      colors: {
+        'diffEditor.insertedLineBackground': '#16a34a20',
+        'diffEditor.removedLineBackground': '#dc262620',
+        'diffEditor.insertedTextBackground': '#16a34a4d',
+        'diffEditor.removedTextBackground': '#dc26264d',
+        'diffEditorGutter.insertedLineBackground': '#16a34a40',
+        'diffEditorGutter.removedLineBackground': '#dc262640',
+        'diffEditorOverview.insertedForeground': '#16a34aaa',
+        'diffEditorOverview.removedForeground': '#dc2626aa',
+        'diffEditor.diagonalFill': '#00000014',
+      },
+    });
+    monaco.editor.defineTheme('belair-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [],
+      colors: {
+        'diffEditor.insertedLineBackground': '#22c55e26',
+        'diffEditor.removedLineBackground': '#ef444426',
+        'diffEditor.insertedTextBackground': '#22c55e59',
+        'diffEditor.removedTextBackground': '#ef444459',
+        'diffEditorGutter.insertedLineBackground': '#22c55e4d',
+        'diffEditorGutter.removedLineBackground': '#ef44444d',
+        'diffEditorOverview.insertedForeground': '#22c55eaa',
+        'diffEditorOverview.removedForeground': '#ef4444aa',
+        'diffEditor.diagonalFill': '#ffffff17',
+      },
+    });
+    themesDefined = true;
+  }
+
   function applyTheme() {
     const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     document.body.classList.toggle('dark', dark);
-    if (window.monaco) monaco.editor.setTheme(dark ? 'vs-dark' : 'vs');
+    if (window.monaco) {
+      defineThemes();
+      monaco.editor.setTheme(dark ? 'belair-dark' : 'belair-light');
+    }
   }
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 
@@ -58,14 +106,40 @@
     if (!state.diffEditor) {
       state.diffEditor = monaco.editor.createDiffEditor($('editor-diff'), {
         ...EDITOR_OPTS,
-        renderSideBySide: true,
+        renderSideBySide: state.diffLayout === 'side-by-side',
         enableSplitViewResizing: true,
+        // Show where every change is: +/- gutter indicators, char-level inline
+        // highlights (advanced algorithm), whitespace-sensitive, and colored
+        // overview ruler ticks. No revert arrows — the viewer is read-only.
+        renderIndicators: true,
+        renderMarginRevertIcon: false,
+        ignoreTrimWhitespace: false,
+        diffAlgorithm: 'advanced',
+        renderOverviewRuler: true,
       });
     }
   }
 
   function lineNumberFn(offset) {
     return (n) => String(n + offset - 1);
+  }
+
+  // ---------- diff layout toggle ----------
+  function setDiffLayout(layout, { rerender = true } = {}) {
+    state.diffLayout = layout === 'inline' ? 'inline' : 'side-by-side';
+    try {
+      localStorage.setItem(DIFF_LAYOUT_KEY, state.diffLayout);
+    } catch {
+      /* private mode / storage disabled — non-fatal */
+    }
+    for (const btn of document.querySelectorAll('#diff-layout .seg-btn')) {
+      btn.classList.toggle('active', btn.dataset.layout === state.diffLayout);
+    }
+    if (state.diffEditor) {
+      state.diffEditor.updateOptions({ renderSideBySide: state.diffLayout === 'side-by-side' });
+    }
+    // Re-render the current step so view-zone alignment matches the new layout.
+    if (rerender && state.manifest) showStep(state.idx);
   }
 
   // ---------- description view zone ----------
@@ -152,6 +226,7 @@
 
     $('editor-plain').hidden = hasOld;
     $('editor-diff').hidden = !hasOld;
+    $('diff-layout').hidden = !hasOld; // layout toggle only applies to diffs
     ensureEditors();
 
     const lang = step.language || 'plaintext';
@@ -182,6 +257,21 @@
       editor.setModel(model);
       prev?.dispose();
       editor.updateOptions({ lineNumbers: lineNumberFn(step.startLine) });
+      // A no-oldCode step is wholly new content — mark every line as added so
+      // additions are highlighted here too, matching the diff view.
+      state.plainDecorations?.clear();
+      if (kind === 'added') {
+        state.plainDecorations = editor.createDecorationsCollection([
+          {
+            range: new monaco.Range(1, 1, Math.max(1, model.getLineCount()), 1),
+            options: {
+              isWholeLine: true,
+              className: 'belair-added-line',
+              linesDecorationsClassName: 'belair-added-gutter',
+            },
+          },
+        ]);
+      }
       setZone(editor, descriptionHtml(step));
       revealStep(editor, model.getLineCount());
     }
@@ -300,6 +390,14 @@
   async function init() {
     applyTheme();
 
+    let storedLayout = null;
+    try {
+      storedLayout = localStorage.getItem(DIFF_LAYOUT_KEY);
+    } catch {
+      /* storage disabled */
+    }
+    state.diffLayout = storedLayout === 'inline' ? 'inline' : 'side-by-side';
+
     let manifest;
     try {
       const res = await fetch('/api/manifest');
@@ -333,6 +431,11 @@
 
     $('btn-prev').addEventListener('click', () => showStep(state.idx - 1));
     $('btn-next').addEventListener('click', () => showStep(state.idx + 1));
+
+    for (const btn of document.querySelectorAll('#diff-layout .seg-btn')) {
+      btn.addEventListener('click', () => setDiffLayout(btn.dataset.layout));
+    }
+    setDiffLayout(state.diffLayout, { rerender: false }); // reflect stored pref in the buttons
 
     document.addEventListener('keydown', (e) => {
       const t = e.target;

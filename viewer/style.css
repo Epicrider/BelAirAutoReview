@@ -53,6 +53,25 @@ body { display: flex; flex-direction: column; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* segmented diff-layout toggle */
+.segmented { display: inline-flex; flex: none; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.segmented .seg-btn {
+  border: none;
+  border-radius: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--dim);
+}
+.segmented .seg-btn + .seg-btn { border-left: 1px solid var(--border); }
+.segmented .seg-btn:hover:not(.active) { color: var(--accent); }
+.segmented .seg-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  cursor: default;
+}
+
 .nav { display: flex; align-items: center; gap: 10px; }
 #progress { min-width: 110px; text-align: center; font-variant-numeric: tabular-nums; }
 button {
@@ -159,6 +178,13 @@ body.dark .badge-deleted { color: #f87171; border-color: #f87171; }
 
 #editors { flex: 1; min-height: 0; position: relative; }
 .editor { position: absolute; inset: 0; }
+
+/* whole-file additions (plain editor, no oldCode) get a green wash + gutter bar
+   so they read the same as inserted lines in the side-by-side diff */
+.belair-added-line { background: rgba(22, 163, 74, 0.13); }
+.belair-added-gutter { background: rgba(22, 163, 74, 0.7); width: 3px !important; }
+body.dark .belair-added-line { background: rgba(34, 197, 94, 0.16); }
+body.dark .belair-added-gutter { background: rgba(34, 197, 94, 0.8); }
 
 /* description view zone (rendered inside Monaco, above the code) */
 .desc-zone {
