@@ -34,6 +34,7 @@ const manifestPath = path.resolve(
   positionals[0] ?? path.join(process.cwd(), '.review', 'manifest.json')
 );
 const commentsPath = path.join(path.dirname(manifestPath), 'comments.json');
+const summaryPath = path.join(path.dirname(manifestPath), 'summary.md');
 const basePort = parseInt(values.port ?? '4173', 10) || 4173;
 
 const MIME = {
@@ -93,6 +94,25 @@ async function writeComments(comments) {
   const tmp = commentsPath + '.tmp';
   await fsp.writeFile(tmp, JSON.stringify(comments, null, 2) + '\n');
   await fsp.rename(tmp, commentsPath);
+}
+
+async function readSummary() {
+  try {
+    return await fsp.readFile(summaryPath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+async function writeSummary(text) {
+  if (!text || !text.trim()) {
+    await fsp.rm(summaryPath, { force: true });
+    return;
+  }
+  await fsp.mkdir(path.dirname(summaryPath), { recursive: true });
+  const tmp = summaryPath + '.tmp';
+  await fsp.writeFile(tmp, text);
+  await fsp.rename(tmp, summaryPath);
 }
 
 // ---------- publishing to a GitHub PR (via the gh CLI) ----------
@@ -233,6 +253,19 @@ const server = http.createServer(async (req, res) => {
       if (text.trim() === '') delete comments[body.id];
       else comments[body.id] = text;
       await writeComments(comments);
+      sendJson(res, 200, { ok: true, saved: text.trim() !== '' });
+      return;
+    }
+
+    if (pathname === '/api/summary' && req.method === 'GET') {
+      sendJson(res, 200, { text: await readSummary() });
+      return;
+    }
+
+    if (pathname === '/api/summary' && (req.method === 'PUT' || req.method === 'POST')) {
+      const body = JSON.parse(await readBody(req));
+      const text = String(body.text ?? '');
+      await writeSummary(text);
       sendJson(res, 200, { ok: true, saved: text.trim() !== '' });
       return;
     }
