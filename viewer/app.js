@@ -47,9 +47,11 @@
       inherit: true,
       rules: [],
       colors: {
-        'diffEditor.insertedLineBackground': '#16a34a20',
+        // Green matches the added-file wash (.belair-added-line, rgba(22,163,74,0.13));
+        // line and inline-char share one value so inserts aren't over-saturated.
+        'diffEditor.insertedLineBackground': '#16a34a21',
         'diffEditor.removedLineBackground': '#dc262620',
-        'diffEditor.insertedTextBackground': '#16a34a4d',
+        'diffEditor.insertedTextBackground': '#16a34a21',
         'diffEditor.removedTextBackground': '#dc26264d',
         'diffEditorGutter.insertedLineBackground': '#16a34a40',
         'diffEditorGutter.removedLineBackground': '#dc262640',
@@ -63,9 +65,10 @@
       inherit: true,
       rules: [],
       colors: {
-        'diffEditor.insertedLineBackground': '#22c55e26',
+        // Green matches the added-file wash (body.dark .belair-added-line, rgba(34,197,94,0.16)).
+        'diffEditor.insertedLineBackground': '#22c55e29',
         'diffEditor.removedLineBackground': '#ef444426',
-        'diffEditor.insertedTextBackground': '#22c55e59',
+        'diffEditor.insertedTextBackground': '#22c55e29',
         'diffEditor.removedTextBackground': '#ef444459',
         'diffEditorGutter.insertedLineBackground': '#22c55e4d',
         'diffEditorGutter.removedLineBackground': '#ef44444d',
