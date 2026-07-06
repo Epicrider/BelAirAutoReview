@@ -318,8 +318,11 @@
       closeLineEditor();
       renderLineComments(editor, step);
     });
-    // Keep Monaco from swallowing typing/shortcuts inside the textarea.
-    dom.addEventListener('keydown', (e) => e.stopPropagation());
+    // Stop Monaco from grabbing focus/handling input inside the zone — otherwise
+    // clicking the textarea just re-focuses the editor and you can't type.
+    for (const ev of ['mousedown', 'mouseup', 'click', 'dblclick', 'keydown', 'keyup', 'contextmenu']) {
+      dom.addEventListener(ev, (e) => e.stopPropagation());
+    }
 
     editor.changeViewZones((acc) => {
       const zoneId = acc.addZone({ afterLineNumber: modelLine, heightInPx: 132, domNode: dom });
