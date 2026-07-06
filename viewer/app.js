@@ -547,6 +547,34 @@
     }
   }
 
+  // ---------- overall review summary (agent-generated, read-only) ----------
+  function openSummary() {
+    $('summary-backdrop').hidden = false;
+  }
+
+  function closeSummary() {
+    $('summary-backdrop').hidden = true;
+  }
+
+  function initSummary() {
+    const summary = (state.manifest && typeof state.manifest.summary === 'string'
+      ? state.manifest.summary
+      : ''
+    ).trim();
+    // No agent summary → no button; nothing for the reviewer to open.
+    if (!summary) {
+      $('btn-summary').hidden = true;
+      return;
+    }
+    $('btn-summary').hidden = false;
+    $('summary-body').textContent = summary;
+    $('btn-summary').addEventListener('click', openSummary);
+    $('summary-close').addEventListener('click', closeSummary);
+    $('summary-backdrop').addEventListener('click', (e) => {
+      if (e.target === $('summary-backdrop')) closeSummary();
+    });
+  }
+
   // ---------- init ----------
   async function init() {
     applyTheme();
@@ -597,6 +625,7 @@
 
     buildSidebar();
     initResizers();
+    initSummary();
 
     $('btn-toggle-info').addEventListener('click', () => setAllInfo(!state.showAllInfo));
 
@@ -609,6 +638,10 @@
     setDiffLayout(state.diffLayout, { rerender: false }); // reflect stored pref in the buttons
 
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !$('summary-backdrop').hidden) {
+        closeSummary();
+        return;
+      }
       const t = e.target;
       if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
       if (e.key === 'ArrowRight' || e.key === 'j') showStep(state.idx + 1);

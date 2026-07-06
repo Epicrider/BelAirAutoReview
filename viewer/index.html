@@ -11,6 +11,8 @@
   <header id="topbar">
     <div class="brand">BelAir&nbsp;Review</div>
     <div id="target-info" title=""></div>
+    <button id="btn-summary" hidden
+      title="View the agent's overall summary for this review">Summary</button>
     <button id="btn-publish" hidden
       title="Post your comments to the PR as review comments">Publish to PR</button>
     <div id="diff-layout" class="segmented" role="group" aria-label="Diff layout" hidden>
@@ -62,6 +64,17 @@
           placeholder="Type your review comment for this step — saved automatically to comments.json"></textarea>
       </div>
     </main>
+  </div>
+
+  <div id="summary-backdrop" hidden>
+    <div id="summary-panel" role="dialog" aria-label="Review summary" aria-modal="true">
+      <div class="summary-head">
+        <span class="summary-title">Review summary</span>
+        <span class="dim summary-note">agent-generated · read-only</span>
+        <button id="summary-close" title="Close (Esc)">✕</button>
+      </div>
+      <div id="summary-body"></div>
+    </div>
   </div>
 
   <div id="error-banner" hidden></div>

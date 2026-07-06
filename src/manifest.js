@@ -2,6 +2,7 @@
 //
 // Manifest shape (the viewer's contract):
 // {
+//   "summary"?: string,   // optional agent-written overall review summary
 //   "steps": [{
 //     "id": string, "file": string, "startLine": int, "endLine": int,
 //     "code": string, "oldCode"?: string, "description": string,
@@ -63,9 +64,11 @@ export function buildManifest(chunksDoc, notes) {
     steps.push(step);
   }
 
+  const summary = typeof notes.summary === 'string' ? notes.summary.trim() : '';
   const manifest = {
     generatedAt: new Date().toISOString(),
     source: { mode: chunksDoc.mode, target: chunksDoc.target },
+    ...(summary ? { summary } : {}),
     steps,
   };
   return { manifest: errors.length ? null : manifest, errors };
@@ -76,6 +79,9 @@ export function validateManifest(manifest) {
   const errors = [];
   if (!manifest || !Array.isArray(manifest.steps)) {
     return ['manifest must be an object with a "steps" array'];
+  }
+  if (manifest.summary !== undefined && typeof manifest.summary !== 'string') {
+    errors.push('"summary" must be a string when present');
   }
   const ids = new Set();
   manifest.steps.forEach((s, i) => {
