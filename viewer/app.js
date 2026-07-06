@@ -16,7 +16,6 @@
     diffLayout: 'side-by-side', // 'side-by-side' | 'inline'; persisted
     showAllInfo: false, // whether every step's order rationale is expanded
     saveTimer: null,
-    summaryTimer: null,
   };
 
   const DIFF_LAYOUT_KEY = 'belair.diffLayout';
@@ -548,60 +547,31 @@
     }
   }
 
-  // ---------- overall review summary ----------
-  function markSummaryButton(hasContent) {
-    $('btn-summary').classList.toggle('has-content', !!hasContent);
-  }
-
+  // ---------- overall review summary (agent-generated, read-only) ----------
   function openSummary() {
     $('summary-backdrop').hidden = false;
-    $('summary').focus();
   }
 
   function closeSummary() {
     $('summary-backdrop').hidden = true;
   }
 
-  async function saveSummary(text) {
-    $('summary-save-state').textContent = 'saving…';
-    try {
-      const res = await fetch('/api/summary', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      $('summary-save-state').textContent = 'saved ✓';
-      markSummaryButton(text.trim() !== '');
-    } catch (err) {
-      $('summary-save-state').textContent = `save failed: ${err.message}`;
+  function initSummary() {
+    const summary = (state.manifest && typeof state.manifest.summary === 'string'
+      ? state.manifest.summary
+      : ''
+    ).trim();
+    // No agent summary → no button; nothing for the reviewer to open.
+    if (!summary) {
+      $('btn-summary').hidden = true;
+      return;
     }
-  }
-
-  async function initSummary() {
-    let text = '';
-    try {
-      text = (await (await fetch('/api/summary')).json()).text || '';
-    } catch {
-      text = '';
-    }
-    $('summary').value = text;
-    markSummaryButton(text.trim() !== '');
-
+    $('btn-summary').hidden = false;
+    $('summary-body').textContent = summary;
     $('btn-summary').addEventListener('click', openSummary);
     $('summary-close').addEventListener('click', closeSummary);
     $('summary-backdrop').addEventListener('click', (e) => {
       if (e.target === $('summary-backdrop')) closeSummary();
-    });
-    $('summary').addEventListener('input', () => {
-      $('summary-save-state').textContent = 'unsaved…';
-      clearTimeout(state.summaryTimer);
-      const value = $('summary').value;
-      state.summaryTimer = setTimeout(() => saveSummary(value), 600);
-    });
-    $('summary').addEventListener('blur', () => {
-      clearTimeout(state.summaryTimer);
-      saveSummary($('summary').value);
     });
   }
 

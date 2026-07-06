@@ -79,6 +79,7 @@ Write `.review/review-notes.json`:
 
 ```json
 {
+  "summary": "optional: a few sentences summarizing the whole change for the reviewer",
   "order": ["chunk-id-1", "chunk-id-2", "..."],
   "annotations": {
     "chunk-id-1": {
@@ -90,8 +91,11 @@ Write `.review/review-notes.json`:
 ```
 
 `order` must contain every chunk id from chunks.json exactly once; every id needs a
-description. Do **not** copy code into this file and do **not** edit chunks.json —
-the next step merges the two.
+description. The optional top-level `summary` is an overall, review-wide note that
+**you** write — what the change does as a whole, notable risks, and what the reviewer
+should focus on; the viewer shows it read-only (it is not for the reviewer to edit).
+Do **not** copy code into this file and do **not** edit chunks.json — the next step
+merges the two.
 
 ## Step 5 — Build and validate the manifest
 
