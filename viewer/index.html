@@ -25,7 +25,13 @@
   </header>
 
   <div id="layout">
-    <aside id="sidebar" aria-label="All steps"></aside>
+    <aside id="sidebar" aria-label="All steps">
+      <div id="sidebar-toolbar" hidden>
+        <button id="btn-toggle-info"
+          title="Show or hide every step's order-explanation note">Show all info</button>
+      </div>
+      <div id="sidebar-list"></div>
+    </aside>
     <div id="sidebar-resizer" class="resizer resizer-x" title="Drag to resize"
       role="separator" aria-orientation="vertical"></div>
 

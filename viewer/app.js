@@ -14,6 +14,7 @@
     zoneIds: new Map(), // editor → view zone id
     plainDecorations: null, // added-line highlight in the plain editor
     diffLayout: 'side-by-side', // 'side-by-side' | 'inline'; persisted
+    showAllInfo: false, // whether every step's order rationale is expanded
     saveTimer: null,
   };
 
@@ -391,6 +392,7 @@
         const item = document.createElement('div');
         item.className = 'step-item';
         item.dataset.idx = String(idx);
+        if (s.orderRationale) item.dataset.rationale = s.orderRationale;
 
         const label = document.createElement('span');
         label.className = 'step-label';
@@ -435,9 +437,30 @@
       }
       frag.appendChild(group);
     }
-    const sidebar = $('sidebar');
-    sidebar.textContent = '';
-    sidebar.appendChild(frag);
+    const list = $('sidebar-list');
+    list.textContent = '';
+    list.appendChild(frag);
+
+    // Only offer the show/hide-all control when there are notes to show.
+    $('sidebar-toolbar').hidden = !steps.some((s) => s.orderRationale);
+  }
+
+  // Expand or collapse every step's inline order-rationale note at once.
+  function setAllInfo(show) {
+    state.showAllInfo = show;
+    const btn = $('btn-toggle-info');
+    if (btn) btn.textContent = show ? 'Hide all info' : 'Show all info';
+    const list = $('sidebar-list');
+    for (const r of list.querySelectorAll('.rationale-inline')) r.remove();
+    if (show) {
+      for (const item of list.querySelectorAll('.step-item')) {
+        if (!item.dataset.rationale) continue;
+        const r = document.createElement('div');
+        r.className = 'rationale-inline';
+        r.textContent = item.dataset.rationale;
+        item.after(r);
+      }
+    }
   }
 
   function refreshCommentDots() {
@@ -508,6 +531,8 @@
 
     buildSidebar();
     initResizers();
+
+    $('btn-toggle-info').addEventListener('click', () => setAllInfo(!state.showAllInfo));
 
     $('btn-prev').addEventListener('click', () => showStep(state.idx - 1));
     $('btn-next').addEventListener('click', () => showStep(state.idx + 1));
