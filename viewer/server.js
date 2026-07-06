@@ -10,7 +10,8 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs } from 'node:util';
+import { parseArgs, promisify } from 'node:util';
+import { execFile } from 'node:child_process';
 
 const viewerDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(viewerDir, '..');
@@ -94,6 +95,89 @@ async function writeComments(comments) {
   await fsp.rename(tmp, commentsPath);
 }
 
+// ---------- publishing to a GitHub PR (via the gh CLI) ----------
+const execFileP = promisify(execFile);
+
+async function gh(args) {
+  try {
+    const { stdout } = await execFileP('gh', args, { maxBuffer: 64 * 1024 * 1024 });
+    return stdout;
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      throw new Error('GitHub CLI (gh) not found — install it (brew install gh) and run `gh auth login`.');
+    }
+    const stderr = (err.stderr || '').toString().trim();
+    const e = new Error(stderr || err.message);
+    e.stderr = stderr;
+    throw e;
+  }
+}
+
+function parsePrTarget(target) {
+  const m = String(target || '').match(/^([^/]+)\/([^#]+)#(\d+)$/); // owner/repo#123
+  return m ? { slug: `${m[1]}/${m[2]}`, num: m[3] } : null;
+}
+
+async function postPrComment({ slug, num, commitId, body, file, line, side }) {
+  const args = [
+    'api',
+    '--method',
+    'POST',
+    `repos/${slug}/pulls/${num}/comments`,
+    '-f',
+    `body=${body}`,
+    '-f',
+    `commit_id=${commitId}`,
+    '-f',
+    `path=${file}`,
+  ];
+  if (line != null) args.push('-F', `line=${line}`, '-f', `side=${side}`);
+  else args.push('-f', 'subject_type=file'); // whole-file comment (line not in diff)
+  args.push('--jq', '.html_url');
+  return (await gh(args)).trim();
+}
+
+async function publishReview(manifest, comments) {
+  const pr = manifest.source && manifest.source.mode === 'pr'
+    ? parsePrTarget(manifest.source.target)
+    : null;
+  if (!pr) {
+    const e = new Error('Publishing requires a PR-mode manifest (generate it with --pr).');
+    e.status = 400;
+    throw e;
+  }
+  const headSha = (await gh(['api', `repos/${pr.slug}/pulls/${pr.num}`, '--jq', '.head.sha'])).trim();
+  const stepById = new Map(manifest.steps.map((s) => [s.id, s]));
+  const results = [];
+  for (const [id, text] of Object.entries(comments)) {
+    if (!text || !text.trim()) continue;
+    const step = stepById.get(id);
+    if (!step) {
+      results.push({ id, status: 'skipped', reason: 'no matching step in manifest' });
+      continue;
+    }
+    const deleted = step.changeKind === 'deleted';
+    const side = deleted ? 'LEFT' : 'RIGHT';
+    const line = deleted ? step.oldStartLine || step.startLine : step.endLine;
+    const common = { slug: pr.slug, num: pr.num, commitId: headSha, body: text, file: step.file };
+    try {
+      const url = await postPrComment({ ...common, line, side });
+      results.push({ id, status: 'posted', url });
+    } catch {
+      // Line likely isn't part of the PR diff — fall back to a file-level comment.
+      try {
+        const url = await postPrComment({ ...common, line: null });
+        results.push({ id, status: 'posted-file', url });
+      } catch (err2) {
+        results.push({ id, status: 'failed', reason: (err2.stderr || err2.message || '').slice(0, 300) });
+      }
+    }
+  }
+  const posted = results.filter((r) => r.status.startsWith('posted')).length;
+  const failed = results.filter((r) => r.status === 'failed').length;
+  return { ok: failed === 0, target: manifest.source.target, posted, failed, results };
+}
+
 function readBody(req, limit = 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
@@ -150,6 +234,27 @@ const server = http.createServer(async (req, res) => {
       else comments[body.id] = text;
       await writeComments(comments);
       sendJson(res, 200, { ok: true, saved: text.trim() !== '' });
+      return;
+    }
+
+    if (pathname === '/api/publish' && req.method === 'POST') {
+      let manifest;
+      try {
+        manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf8'));
+      } catch {
+        sendJson(res, 404, { error: 'manifest not found' });
+        return;
+      }
+      const comments = await readComments();
+      if (!Object.values(comments).some((t) => t && t.trim())) {
+        sendJson(res, 400, { error: 'no comments to publish' });
+        return;
+      }
+      try {
+        sendJson(res, 200, await publishReview(manifest, comments));
+      } catch (err) {
+        sendJson(res, err.status || 500, { error: err.message });
+      }
       return;
     }
 
