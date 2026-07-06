@@ -34,6 +34,7 @@ const manifestPath = path.resolve(
   positionals[0] ?? path.join(process.cwd(), '.review', 'manifest.json')
 );
 const commentsPath = path.join(path.dirname(manifestPath), 'comments.json');
+const lineCommentsPath = path.join(path.dirname(manifestPath), 'line-comments.json');
 const basePort = parseInt(values.port ?? '4173', 10) || 4173;
 
 const MIME = {
@@ -95,6 +96,22 @@ async function writeComments(comments) {
   await fsp.rename(tmp, commentsPath);
 }
 
+// Line comments: { "<stepId>": { "<realFileLine>": "text" } }
+async function readLineComments() {
+  try {
+    return JSON.parse(await fsp.readFile(lineCommentsPath, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+async function writeLineComments(data) {
+  await fsp.mkdir(path.dirname(lineCommentsPath), { recursive: true });
+  const tmp = lineCommentsPath + '.tmp';
+  await fsp.writeFile(tmp, JSON.stringify(data, null, 2) + '\n');
+  await fsp.rename(tmp, lineCommentsPath);
+}
+
 // ---------- publishing to a GitHub PR (via the gh CLI) ----------
 const execFileP = promisify(execFile);
 
@@ -137,7 +154,7 @@ async function postPrComment({ slug, num, commitId, body, file, line, side }) {
   return (await gh(args)).trim();
 }
 
-async function publishReview(manifest, comments) {
+async function publishReview(manifest, comments, lineComments) {
   const pr = manifest.source && manifest.source.mode === 'pr'
     ? parsePrTarget(manifest.source.target)
     : null;
@@ -149,7 +166,25 @@ async function publishReview(manifest, comments) {
   const headSha = (await gh(['api', `repos/${pr.slug}/pulls/${pr.num}`, '--jq', '.head.sha'])).trim();
   const stepById = new Map(manifest.steps.map((s) => [s.id, s]));
   const results = [];
-  for (const [id, text] of Object.entries(comments)) {
+
+  // Post one comment anchored to a line (with a file-level fallback).
+  async function post(idLabel, file, body, line, side) {
+    const common = { slug: pr.slug, num: pr.num, commitId: headSha, body, file };
+    try {
+      const url = await postPrComment({ ...common, line, side });
+      results.push({ id: idLabel, status: 'posted', url });
+    } catch {
+      try {
+        const url = await postPrComment({ ...common, line: null });
+        results.push({ id: idLabel, status: 'posted-file', url });
+      } catch (err2) {
+        results.push({ id: idLabel, status: 'failed', reason: (err2.stderr || err2.message || '').slice(0, 300) });
+      }
+    }
+  }
+
+  // Step-level comments — anchored to the step's line.
+  for (const [id, text] of Object.entries(comments || {})) {
     if (!text || !text.trim()) continue;
     const step = stepById.get(id);
     if (!step) {
@@ -159,20 +194,22 @@ async function publishReview(manifest, comments) {
     const deleted = step.changeKind === 'deleted';
     const side = deleted ? 'LEFT' : 'RIGHT';
     const line = deleted ? step.oldStartLine || step.startLine : step.endLine;
-    const common = { slug: pr.slug, num: pr.num, commitId: headSha, body: text, file: step.file };
-    try {
-      const url = await postPrComment({ ...common, line, side });
-      results.push({ id, status: 'posted', url });
-    } catch {
-      // Line likely isn't part of the PR diff — fall back to a file-level comment.
-      try {
-        const url = await postPrComment({ ...common, line: null });
-        results.push({ id, status: 'posted-file', url });
-      } catch (err2) {
-        results.push({ id, status: 'failed', reason: (err2.stderr || err2.message || '').slice(0, 300) });
-      }
+    await post(id, step.file, text, line, side);
+  }
+
+  // Per-line comments — anchored to their exact (new-side) file line.
+  for (const [id, byLine] of Object.entries(lineComments || {})) {
+    const step = stepById.get(id);
+    if (!step) {
+      results.push({ id, status: 'skipped', reason: 'no matching step in manifest' });
+      continue;
+    }
+    for (const [lineStr, text] of Object.entries(byLine || {})) {
+      if (!text || !text.trim()) continue;
+      await post(`${step.file}:${lineStr}`, step.file, text, Number(lineStr), 'RIGHT');
     }
   }
+
   const posted = results.filter((r) => r.status.startsWith('posted')).length;
   const failed = results.filter((r) => r.status === 'failed').length;
   return { ok: failed === 0, target: manifest.source.target, posted, failed, results };
@@ -237,6 +274,29 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/api/line-comments' && req.method === 'GET') {
+      sendJson(res, 200, await readLineComments());
+      return;
+    }
+
+    if (pathname === '/api/line-comments' && (req.method === 'PUT' || req.method === 'POST')) {
+      const body = JSON.parse(await readBody(req));
+      if (typeof body.id !== 'string' || !Number.isInteger(body.line)) {
+        sendJson(res, 400, { error: 'expected {id: string, line: int, text: string}' });
+        return;
+      }
+      const data = await readLineComments();
+      const text = String(body.text ?? '');
+      const forStep = data[body.id] || {};
+      if (text.trim() === '') delete forStep[body.line];
+      else forStep[body.line] = text;
+      if (Object.keys(forStep).length) data[body.id] = forStep;
+      else delete data[body.id];
+      await writeLineComments(data);
+      sendJson(res, 200, { ok: true, saved: text.trim() !== '' });
+      return;
+    }
+
     if (pathname === '/api/publish' && req.method === 'POST') {
       let manifest;
       try {
@@ -246,12 +306,17 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const comments = await readComments();
-      if (!Object.values(comments).some((t) => t && t.trim())) {
+      const lineComments = await readLineComments();
+      const hasStep = Object.values(comments).some((t) => t && t.trim());
+      const hasLine = Object.values(lineComments).some(
+        (byLine) => byLine && Object.values(byLine).some((t) => t && t.trim())
+      );
+      if (!hasStep && !hasLine) {
         sendJson(res, 400, { error: 'no comments to publish' });
         return;
       }
       try {
-        sendJson(res, 200, await publishReview(manifest, comments));
+        sendJson(res, 200, await publishReview(manifest, comments, lineComments));
       } catch (err) {
         sendJson(res, err.status || 500, { error: err.message });
       }

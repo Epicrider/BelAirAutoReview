@@ -180,6 +180,7 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select:
   white-space: nowrap;
 }
 #step-file { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.step-hint { margin-left: auto; font-size: 12px; white-space: nowrap; }
 .badge {
   font-size: 11px;
   padding: 1px 8px;
@@ -231,6 +232,51 @@ body.dark .belair-added-gutter { background: rgba(34, 197, 94, 0.8); }
   font-style: italic;
   color: var(--dim);
 }
+
+/* ---------- per-line comments (inside the editor) ---------- */
+/* clickable line numbers to add a comment */
+.monaco-editor .margin-view-overlays .line-numbers { cursor: pointer; }
+.lc-gutter-dot { width: 3px !important; background: var(--accent); margin-left: 3px; }
+
+.lc-box {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  padding: 6px 10px;
+  color: var(--text);
+}
+.lc-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lc-tag { font-size: 12px; font-weight: 600; color: var(--dim); }
+.lc-bar button {
+  font-size: 11px;
+  padding: 1px 8px;
+}
+.lc-body { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; }
+
+.lc-editor {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--panel);
+  border-left: 3px solid var(--accent);
+  padding: 8px 10px;
+}
+.lc-textarea {
+  width: 100%;
+  height: 72px;
+  resize: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.lc-actions { display: flex; gap: 8px; margin-top: 6px; }
+.lc-actions button { font-size: 12px; padding: 3px 12px; }
+.lc-actions .lc-delete { margin-left: auto; color: #b91c1c; border-color: #b91c1c; }
 
 /* ---------- comment box ---------- */
 #comment-box {
