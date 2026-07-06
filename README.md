@@ -147,8 +147,52 @@ Open http://localhost:4173. The viewer gives you:
 - A **comment textarea** below each step. Comments autosave (debounced) to
   `comments.json` **next to the manifest** (`.review/comments.json`), keyed by
   step id, and reload on refresh. Clearing a comment deletes its key.
+- A **Summary** button (only when the manifest has a `summary`) that opens a
+  read-only, agent-written overview of the whole change.
+- A **Publish to PR** button (only for PR-mode manifests) that posts your
+  per-step comments to the pull request — see below.
 
 The editor is read-only throughout — this is a review tool, not an editor.
+
+## Publishing comments to a GitHub PR
+
+For a **PR-mode** manifest, the viewer shows a **Publish to PR** button that
+posts each step's comment as an inline PR review comment (falling back to a
+file-level comment when the line isn't part of the PR diff). It shells out to
+the GitHub CLI (`gh`), so `gh` must be able to authenticate for the host the PR
+lives on.
+
+`gh` resolves credentials in this order: the `GH_TOKEN` / `GITHUB_TOKEN`
+environment variable, then (for a non-default host) `GH_ENTERPRISE_TOKEN`, then
+the stored login from `gh auth login`. The credentials must be visible to the
+process running `viewer/server.js`, because that process is what spawns `gh`.
+
+Pick whichever fits:
+
+- **Already logged in** (simplest): if you've run `gh auth login` for the PR's
+  host, just start the viewer normally — no extra variables:
+
+  ```sh
+  node <repo>/viewer/server.js
+  ```
+
+- **Per-run token** (no global change, scoped tokens, CI): pass the token — and
+  the host if it isn't the default `github.com` — in the server's environment:
+
+  ```sh
+  GH_TOKEN=<token> node <repo>/viewer/server.js
+  # non-default host:
+  GH_TOKEN=<token> GH_HOST=<your-github-host> node <repo>/viewer/server.js
+  ```
+
+Notes:
+
+- Use a token scoped to just the target repo with **Pull requests: read & write**
+  (plus **Contents: read**). Keep it out of shell history, e.g. read it from a
+  file: `GH_TOKEN=$(cat ~/.some-token-file) node <repo>/viewer/server.js`.
+- The server reads the environment at **startup**, so changing these variables
+  requires restarting the server.
+- Re-publishing posts the comments again (there is no de-duplication yet).
 
 ## How the pieces fit
 
@@ -173,6 +217,7 @@ BelAirAutoReview (this repo)
 
 ```jsonc
 {
+  "summary": "optional — agent-written overview of the whole change (read-only in the viewer)",
   "steps": [
     {
       "id": "src/foo.ts:10-42",
