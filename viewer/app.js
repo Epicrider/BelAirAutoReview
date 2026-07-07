@@ -9,6 +9,7 @@
     manifest: null,
     comments: {},
     lineComments: {}, // { stepId: { realLine: text } }
+    reviewed: {}, // { stepId: true }
     idx: 0,
     plainEditor: null,
     diffEditor: null,
@@ -466,9 +467,10 @@
     const step = steps[state.idx];
     const hasOld = typeof step.oldCode === 'string';
 
-    $('progress').textContent = `Step ${state.idx + 1} of ${steps.length}`;
     $('btn-prev').disabled = state.idx === 0;
     $('btn-next').disabled = state.idx === steps.length - 1;
+    $('reviewed-check').checked = !!state.reviewed[step.id];
+    updateProgress();
     $('step-file').textContent = step.file;
     $('step-lines').textContent =
       step.changeKind === 'deleted' ? '(file deleted)' : `L${step.startLine}–${step.endLine}`;
@@ -567,6 +569,7 @@
         const s = steps[idx];
         const item = document.createElement('div');
         item.className = 'step-item';
+        if (state.reviewed[s.id]) item.classList.add('reviewed');
         item.dataset.idx = String(idx);
         if (s.orderRationale) item.dataset.rationale = s.orderRationale;
 
@@ -580,6 +583,12 @@
 
         const icons = document.createElement('span');
         icons.className = 'step-icons';
+        const reviewedMark = document.createElement('span');
+        reviewedMark.className = 'icon-reviewed';
+        reviewedMark.textContent = '✓';
+        reviewedMark.title = 'Reviewed';
+        reviewedMark.style.visibility = state.reviewed[s.id] ? 'visible' : 'hidden';
+        icons.appendChild(reviewedMark);
         const commentDot = document.createElement('span');
         commentDot.className = 'icon-comment';
         commentDot.dataset.stepId = s.id;
@@ -731,6 +740,61 @@
     });
   }
 
+  // ---------- reviewed state & progress ----------
+  function reviewedCount() {
+    const ids = new Set(state.manifest.steps.map((s) => s.id));
+    return Object.keys(state.reviewed).filter((id) => ids.has(id)).length;
+  }
+
+  function updateProgress() {
+    const total = state.manifest.steps.length;
+    const done = reviewedCount();
+    $('progress').textContent = `Step ${state.idx + 1} of ${total} · ${done} reviewed`;
+    $('progress-bar-fill').style.width = total ? `${(done / total) * 100}%` : '0';
+    const btn = $('btn-next-unreviewed');
+    if (btn) btn.disabled = done >= total;
+  }
+
+  async function setReviewed(id, reviewed) {
+    if (reviewed) state.reviewed[id] = true;
+    else delete state.reviewed[id];
+    // Reflect immediately; persistence is best-effort.
+    refreshReviewedMarks();
+    updateProgress();
+    try {
+      const res = await fetch('/api/reviewed', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, reviewed }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      showToast(`Could not save reviewed state: ${err.message}`, 'error');
+    }
+  }
+
+  function refreshReviewedMarks() {
+    for (const el of document.querySelectorAll('#sidebar .step-item')) {
+      const id = state.manifest.steps[Number(el.dataset.idx)].id;
+      const done = !!state.reviewed[id];
+      el.classList.toggle('reviewed', done);
+      const mark = el.querySelector('.icon-reviewed');
+      if (mark) mark.style.visibility = done ? 'visible' : 'hidden';
+    }
+  }
+
+  function jumpToNextUnreviewed() {
+    const steps = state.manifest.steps;
+    for (let k = 1; k <= steps.length; k++) {
+      const j = (state.idx + k) % steps.length;
+      if (!state.reviewed[steps[j].id]) {
+        showStep(j);
+        return;
+      }
+    }
+    showToast('All steps are marked reviewed.', 'success');
+  }
+
   // ---------- init ----------
   async function init() {
     applyTheme();
@@ -772,6 +836,12 @@
       state.lineComments = {};
     }
 
+    try {
+      state.reviewed = await (await fetch('/api/reviewed')).json();
+    } catch {
+      state.reviewed = {};
+    }
+
     const target = manifest.source
       ? `${manifest.source.mode ?? ''} — ${manifest.source.target ?? ''}`
       : '';
@@ -794,6 +864,10 @@
 
     $('btn-prev').addEventListener('click', () => showStep(state.idx - 1));
     $('btn-next').addEventListener('click', () => showStep(state.idx + 1));
+    $('btn-next-unreviewed').addEventListener('click', jumpToNextUnreviewed);
+    $('reviewed-check').addEventListener('change', (e) => {
+      setReviewed(state.manifest.steps[state.idx].id, e.target.checked);
+    });
 
     for (const btn of document.querySelectorAll('#diff-layout .seg-btn')) {
       btn.addEventListener('click', () => setDiffLayout(btn.dataset.layout));
@@ -813,6 +887,12 @@
       if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT')) return;
       if (e.key === 'ArrowRight' || e.key === 'j') showStep(state.idx + 1);
       else if (e.key === 'ArrowLeft' || e.key === 'k') showStep(state.idx - 1);
+      else if (e.key === 'u') jumpToNextUnreviewed();
+      else if (e.key === 'r') {
+        const check = $('reviewed-check');
+        check.checked = !check.checked;
+        setReviewed(state.manifest.steps[state.idx].id, check.checked);
+      }
     });
 
     // The description zone's width is fixed in px, so re-render on resize to

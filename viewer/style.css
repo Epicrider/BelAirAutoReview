@@ -149,6 +149,9 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select:
 .step-label { overflow: hidden; text-overflow: ellipsis; }
 .step-icons { flex: none; display: flex; gap: 6px; align-items: center; }
 .icon-comment { font-size: 11px; }
+.icon-reviewed { font-size: 12px; color: #16a34a; font-weight: 700; }
+body.dark .icon-reviewed { color: #4ade80; }
+.step-item.reviewed .step-label { color: var(--dim); }
 .icon-rationale {
   color: var(--accent);
   font-size: 13px;
@@ -180,7 +183,33 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select:
   white-space: nowrap;
 }
 #step-file { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
-.step-hint { margin-left: auto; font-size: 12px; white-space: nowrap; }
+.step-hint { font-size: 12px; white-space: nowrap; }
+#reviewed-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+#reviewed-check { cursor: pointer; }
+
+/* review progress bar under the top bar */
+#progress-bar {
+  flex: none;
+  height: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+#progress-bar-fill {
+  height: 100%;
+  width: 0;
+  background: #16a34a;
+  transition: width 0.2s ease;
+}
+body.dark #progress-bar-fill { background: #22c55e; }
 .badge {
   font-size: 11px;
   padding: 1px 8px;
