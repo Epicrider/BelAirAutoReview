@@ -15,6 +15,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { collectDiff } from '../src/diff.js';
 import { chunkFiles } from '../src/chunker.js';
+import { reviewDir, reviewKey, writeCurrentPointer } from '../src/review-paths.js';
 
 const { values } = parseArgs({
   options: {
@@ -43,8 +44,6 @@ if (modesSet.length > 1) {
 }
 const mode = modesSet[0] ?? 'working';
 
-const outPath = path.resolve(cwd, values.out ?? path.join('.review', 'chunks.json'));
-
 try {
   const { files, source, meta } = await collectDiff({
     mode,
@@ -57,17 +56,26 @@ try {
 
   for (const w of warnings) console.error(`warning: ${w}`);
 
+  // Each diff target gets its own .review/<key>/ directory so its artifacts and
+  // comments never collide with those of other diffs.
+  const key = reviewKey(meta.mode, meta.target);
+  const dir = reviewDir(cwd, meta.mode, meta.target);
+  const outPath = values.out ? path.resolve(cwd, values.out) : path.join(dir, 'chunks.json');
+
   const doc = {
     version: 1,
     ...meta,
+    reviewKey: key,
     generatedAt: new Date().toISOString(),
     chunkCount: chunks.length,
     chunks,
   };
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, JSON.stringify(doc, null, 2) + '\n');
+  await writeCurrentPointer(cwd, key);
 
   console.log(`Target: ${meta.target}${meta.title ? ` — ${meta.title}` : ''}`);
+  console.log(`Review dir: ${path.relative(cwd, dir) || '.'}`);
   if (chunks.length === 0) {
     console.log('No changes found — nothing to review.');
     process.exit(0);
@@ -80,7 +88,7 @@ try {
     );
   });
   console.log(
-    '\nNext: write descriptions + a reading order into review-notes.json, then run bin/write-manifest.js.'
+    `\nNext: write descriptions + a reading order into ${path.join(path.relative(cwd, dir) || '.', 'review-notes.json')}, then run bin/write-manifest.js.`
   );
 } catch (err) {
   console.error(`error: ${err.message}`);
