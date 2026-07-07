@@ -12,6 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 import { execFile } from 'node:child_process';
+import { collectDiff } from '../src/diff.js';
 
 const viewerDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(viewerDir, '..');
@@ -127,6 +128,38 @@ async function writeReviewed(data) {
   const tmp = reviewedPath + '.tmp';
   await fsp.writeFile(tmp, JSON.stringify(data, null, 2) + '\n');
   await fsp.rename(tmp, reviewedPath);
+}
+
+// ---------- reading surrounding file context ----------
+// Re-derive a file reader (readNew/readOld) from the manifest's source so the
+// viewer can request lines around a chunk on demand. Cached after first use.
+let _fileSource = null;
+async function getFileSource() {
+  if (_fileSource) return _fileSource;
+  const manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf8'));
+  const src = manifest.source || {};
+  let opts;
+  if (src.mode === 'working') opts = { mode: 'working', cwd: process.cwd() };
+  else if (src.mode === 'range') opts = { mode: 'range', range: src.target, cwd: process.cwd() };
+  else if (src.mode === 'pr') {
+    const m = String(src.target).match(/^([^/]+\/[^#]+)#(\d+)$/);
+    if (!m) throw new Error(`cannot parse PR target "${src.target}"`);
+    opts = { mode: 'pr', pr: m[2], repo: m[1], cwd: process.cwd() };
+  } else {
+    throw new Error(`unknown manifest source mode: ${src.mode}`);
+  }
+  const { source } = await collectDiff(opts);
+  _fileSource = source;
+  return source;
+}
+
+async function readContext(file, start, end, side) {
+  const source = await getFileSource();
+  const content = side === 'old' ? await source.readOld(file) : await source.readNew(file);
+  const all = content.split('\n');
+  const s = Math.max(1, start);
+  const e = Math.min(all.length, end);
+  return { start: s, end: e, total: all.length, lines: s <= e ? all.slice(s - 1, e) : [] };
 }
 
 // ---------- publishing to a GitHub PR (via the gh CLI) ----------
@@ -311,6 +344,23 @@ const server = http.createServer(async (req, res) => {
       else delete data[body.id];
       await writeLineComments(data);
       sendJson(res, 200, { ok: true, saved: text.trim() !== '' });
+      return;
+    }
+
+    if (pathname === '/api/context' && req.method === 'GET') {
+      const file = url.searchParams.get('file');
+      const start = parseInt(url.searchParams.get('start'), 10);
+      const end = parseInt(url.searchParams.get('end'), 10);
+      const side = url.searchParams.get('side') === 'old' ? 'old' : 'new';
+      if (!file || !Number.isInteger(start) || !Number.isInteger(end)) {
+        sendJson(res, 400, { error: 'expected file, start, end query params' });
+        return;
+      }
+      try {
+        sendJson(res, 200, await readContext(file, start, end, side));
+      } catch (err) {
+        sendJson(res, 500, { error: err.message });
+      }
       return;
     }
 
