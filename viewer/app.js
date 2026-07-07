@@ -171,7 +171,9 @@
   }
 
   function applyTheme(id) {
-    const resolved = id === 'auto' || !THEMES[id] ? (prefersDark() ? 'dark' : 'light') : id;
+    // Auto follows the OS but defaults to the Doki Sayori palettes.
+    const resolved =
+      id === 'auto' || !THEMES[id] ? (prefersDark() ? 'sayori-dark' : 'sayori-light') : id;
     const t = THEMES[resolved];
     document.body.classList.remove('dark', 'theme-sayori-light', 'theme-sayori-dark');
     if (t.dark) document.body.classList.add('dark');
