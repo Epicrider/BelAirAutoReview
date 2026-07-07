@@ -270,20 +270,40 @@
     editor.onMouseDown((e) => {
       const t = e.target;
       const types = monaco.editor.MouseTargetType;
-      if (!t || !t.position) return;
-      if (t.type !== types.GUTTER_LINE_NUMBERS && t.type !== types.GUTTER_GLYPH_MARGIN) return;
+      if (!t || t.position == null) return;
+      // Any part of the left gutter: line numbers, glyph margin, or the line
+      // decorations lane (where the comment dot lives).
+      const gutter =
+        t.type === types.GUTTER_LINE_NUMBERS ||
+        t.type === types.GUTTER_GLYPH_MARGIN ||
+        t.type === types.GUTTER_LINE_DECORATIONS;
+      if (!gutter) return;
       const step = currentStep();
       if (!step || codeEditorFor(step) !== editor) return;
       const realLine = t.position.lineNumber + step.startLine - 1;
-      openLineEditor(editor, step, realLine);
+      toggleLineEditor(editor, step, realLine);
     });
+  }
+
+  function toggleLineEditor(editor, step, realLine) {
+    // Clicking the same line again closes the open editor (clear on/off).
+    if (state.openLine && state.openLine.editor === editor && state.openLine.realLine === realLine) {
+      closeLineEditor();
+      renderLineComments(editor, step);
+      return;
+    }
+    openLineEditor(editor, step, realLine);
   }
 
   function closeLineEditor() {
     if (!state.openLine) return;
     const { editor, zoneId } = state.openLine;
-    editor.changeViewZones((acc) => acc.removeZone(zoneId));
     state.openLine = null;
+    try {
+      editor.changeViewZones((acc) => acc.removeZone(zoneId));
+    } catch {
+      /* zone already gone (e.g. model changed) */
+    }
   }
 
   function openLineEditor(editor, step, realLine) {
@@ -326,7 +346,7 @@
 
     editor.changeViewZones((acc) => {
       const zoneId = acc.addZone({ afterLineNumber: modelLine, heightInPx: 132, domNode: dom });
-      state.openLine = { editor, zoneId };
+      state.openLine = { editor, zoneId, realLine };
     });
     setTimeout(() => ta.focus(), 0);
   }
@@ -813,6 +833,12 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !$('summary-backdrop').hidden) {
         closeSummary();
+        return;
+      }
+      if (e.key === 'Escape' && state.openLine) {
+        const step = currentStep();
+        closeLineEditor();
+        if (step) renderLineComments(codeEditorFor(step), step);
         return;
       }
       const t = e.target;
