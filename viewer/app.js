@@ -17,6 +17,7 @@
     lineModal: null, // { step, realLine } while the line-comment modal is open
     plainDecorations: null, // added-line highlight in the plain editor
     diffLayout: 'side-by-side', // 'side-by-side' | 'inline'; persisted
+    wordWrap: false, // wrap long code lines instead of horizontal scroll; persisted
     showAllInfo: false, // whether every step's order rationale is expanded
     collapsedFiles: new Set(), // sidebar file groups collapsed by the user
     saveTimer: null,
@@ -26,6 +27,7 @@
   const SIDEBAR_W_KEY = 'belair.sidebarWidth';
   const COMMENT_H_KEY = 'belair.commentHeight';
   const COLLAPSED_KEY = 'belair.collapsedFiles';
+  const WRAP_KEY = 'belair.wordWrap';
 
   const $ = (id) => document.getElementById(id);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -124,13 +126,15 @@
   };
 
   function ensureEditors() {
+    const wrap = state.wordWrap ? 'on' : 'off';
     if (!state.plainEditor) {
-      state.plainEditor = monaco.editor.create($('editor-plain'), { ...EDITOR_OPTS });
+      state.plainEditor = monaco.editor.create($('editor-plain'), { ...EDITOR_OPTS, wordWrap: wrap });
       attachGutterHandler(state.plainEditor);
     }
     if (!state.diffEditor) {
       state.diffEditor = monaco.editor.createDiffEditor($('editor-diff'), {
         ...EDITOR_OPTS,
+        wordWrap: wrap,
         renderSideBySide: state.diffLayout === 'side-by-side',
         enableSplitViewResizing: true,
         // Show where every change is: +/- gutter indicators, char-level inline
@@ -165,6 +169,25 @@
       state.diffEditor.updateOptions({ renderSideBySide: state.diffLayout === 'side-by-side' });
     }
     // Re-render the current step so view-zone alignment matches the new layout.
+    if (rerender && state.manifest) showStep(state.idx);
+  }
+
+  // ---------- word wrap toggle ----------
+  function setWordWrap(on, { rerender = true } = {}) {
+    state.wordWrap = !!on;
+    try {
+      localStorage.setItem(WRAP_KEY, state.wordWrap ? '1' : '0');
+    } catch {
+      /* storage disabled */
+    }
+    $('btn-wrap').classList.toggle('active', state.wordWrap);
+    const wrap = state.wordWrap ? 'on' : 'off';
+    if (state.plainEditor) state.plainEditor.updateOptions({ wordWrap: wrap });
+    if (state.diffEditor) {
+      state.diffEditor.getOriginalEditor().updateOptions({ wordWrap: wrap });
+      state.diffEditor.getModifiedEditor().updateOptions({ wordWrap: wrap });
+    }
+    // Wrapping changes line heights, so re-render to keep view zones aligned.
     if (rerender && state.manifest) showStep(state.idx);
   }
 
@@ -875,6 +898,12 @@
       state.collapsedFiles = new Set();
     }
 
+    try {
+      state.wordWrap = localStorage.getItem(WRAP_KEY) === '1';
+    } catch {
+      state.wordWrap = false;
+    }
+
     let manifest;
     try {
       const res = await fetch('/api/manifest');
@@ -942,6 +971,8 @@
       btn.addEventListener('click', () => setDiffLayout(btn.dataset.layout));
     }
     setDiffLayout(state.diffLayout, { rerender: false }); // reflect stored pref in the buttons
+    $('btn-wrap').addEventListener('click', () => setWordWrap(!state.wordWrap));
+    $('btn-wrap').classList.toggle('active', state.wordWrap); // reflect stored pref
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !$('summary-backdrop').hidden) {
@@ -957,6 +988,7 @@
       if (e.key === 'ArrowRight' || e.key === 'j') showStep(state.idx + 1);
       else if (e.key === 'ArrowLeft' || e.key === 'k') showStep(state.idx - 1);
       else if (e.key === 'u') jumpToNextUnreviewed();
+      else if (e.key === 'w') setWordWrap(!state.wordWrap);
       else if (e.key === 'r') {
         const check = $('reviewed-check');
         check.checked = !check.checked;

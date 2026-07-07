@@ -373,6 +373,10 @@ body.dark .belair-added-gutter { background: rgba(34, 197, 94, 0.8); }
 #btn-publish { flex: none; font-size: 13px; }
 #btn-publish:disabled { opacity: 0.5; }
 
+/* word-wrap toggle */
+#btn-wrap { flex: none; font-size: 13px; }
+#btn-wrap.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+
 /* summary button + modal */
 #btn-summary { flex: none; font-size: 13px; }
 #summary-backdrop[hidden] { display: none; } /* beat the explicit display below */
