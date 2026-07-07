@@ -18,12 +18,14 @@
     plainDecorations: null, // added-line highlight in the plain editor
     diffLayout: 'side-by-side', // 'side-by-side' | 'inline'; persisted
     showAllInfo: false, // whether every step's order rationale is expanded
+    collapsedFiles: new Set(), // sidebar file groups collapsed by the user
     saveTimer: null,
   };
 
   const DIFF_LAYOUT_KEY = 'belair.diffLayout';
   const SIDEBAR_W_KEY = 'belair.sidebarWidth';
   const COMMENT_H_KEY = 'belair.commentHeight';
+  const COLLAPSED_KEY = 'belair.collapsedFiles';
 
   const $ = (id) => document.getElementById(id);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -541,7 +543,17 @@
     for (const el of document.querySelectorAll('#sidebar .step-item')) {
       const active = Number(el.dataset.idx) === state.idx;
       el.classList.toggle('active', active);
-      if (active) el.scrollIntoView({ block: 'nearest' });
+      if (active) {
+        // Expand the active step's group if it was collapsed, so it's visible.
+        const group = el.closest('.file-group');
+        if (group && group.classList.contains('collapsed')) {
+          group.classList.remove('collapsed');
+          state.collapsedFiles.delete(group.dataset.file);
+          saveCollapsedFiles();
+          updateCollapseAllLabel();
+        }
+        el.scrollIntoView({ block: 'nearest' });
+      }
     }
   }
 
@@ -558,11 +570,24 @@
     for (const [file, indices] of byFile) {
       const group = document.createElement('div');
       group.className = 'file-group';
+      group.dataset.file = file;
+      if (state.collapsedFiles.has(file)) group.classList.add('collapsed');
+
       const h = document.createElement('div');
       h.className = 'file-name mono';
-      h.textContent = file;
       h.title = file;
+      const chevron = document.createElement('span');
+      chevron.className = 'file-chevron';
+      chevron.textContent = '▾';
+      const name = document.createElement('span');
+      name.className = 'file-name-text';
+      name.textContent = file;
+      h.append(chevron, name);
+      h.addEventListener('click', () => toggleFileGroup(group, file));
       group.appendChild(h);
+
+      const stepsWrap = document.createElement('div');
+      stepsWrap.className = 'file-steps';
 
       indices.sort((a, b) => steps[a].startLine - steps[b].startLine);
       for (const idx of indices) {
@@ -618,16 +643,53 @@
         }
         item.appendChild(icons);
         item.addEventListener('click', () => showStep(idx));
-        group.appendChild(item);
+        stepsWrap.appendChild(item);
       }
+      group.appendChild(stepsWrap);
       frag.appendChild(group);
     }
     const list = $('sidebar-list');
     list.textContent = '';
     list.appendChild(frag);
 
-    // Only offer the show/hide-all control when there are notes to show.
-    $('sidebar-toolbar').hidden = !steps.some((s) => s.orderRationale);
+    // The show/hide-all-info control only makes sense when notes exist.
+    $('btn-toggle-info').hidden = !steps.some((s) => s.orderRationale);
+    updateCollapseAllLabel();
+  }
+
+  // ---------- collapsible file groups ----------
+  function toggleFileGroup(group, file) {
+    const collapsed = group.classList.toggle('collapsed');
+    if (collapsed) state.collapsedFiles.add(file);
+    else state.collapsedFiles.delete(file);
+    saveCollapsedFiles();
+    updateCollapseAllLabel();
+  }
+
+  function saveCollapsedFiles() {
+    try {
+      localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...state.collapsedFiles]));
+    } catch {
+      /* storage disabled */
+    }
+  }
+
+  function updateCollapseAllLabel() {
+    const groups = document.querySelectorAll('#sidebar-list .file-group');
+    const anyOpen = [...groups].some((g) => !g.classList.contains('collapsed'));
+    $('btn-collapse-all').textContent = anyOpen ? 'Collapse all' : 'Expand all';
+  }
+
+  function toggleCollapseAll() {
+    const groups = [...document.querySelectorAll('#sidebar-list .file-group')];
+    const collapse = groups.some((g) => !g.classList.contains('collapsed'));
+    state.collapsedFiles = new Set();
+    for (const g of groups) {
+      g.classList.toggle('collapsed', collapse);
+      if (collapse) state.collapsedFiles.add(g.dataset.file);
+    }
+    saveCollapsedFiles();
+    updateCollapseAllLabel();
   }
 
   // Expand or collapse every step's inline order-rationale note at once.
@@ -807,6 +869,12 @@
     }
     state.diffLayout = storedLayout === 'inline' ? 'inline' : 'side-by-side';
 
+    try {
+      state.collapsedFiles = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]'));
+    } catch {
+      state.collapsedFiles = new Set();
+    }
+
     let manifest;
     try {
       const res = await fetch('/api/manifest');
@@ -861,6 +929,7 @@
     initLineModal();
 
     $('btn-toggle-info').addEventListener('click', () => setAllInfo(!state.showAllInfo));
+    $('btn-collapse-all').addEventListener('click', toggleCollapseAll);
 
     $('btn-prev').addEventListener('click', () => showStep(state.idx - 1));
     $('btn-next').addEventListener('click', () => showStep(state.idx + 1));
