@@ -23,6 +23,7 @@
     wordWrap: false, // wrap long code lines instead of horizontal scroll; persisted
     showAllInfo: false, // whether every step's order rationale is expanded
     collapsedFiles: new Set(), // sidebar file groups collapsed by the user
+    theme: 'auto', // 'auto' | 'light' | 'dark' | 'sayori-light' | 'sayori-dark'
     saveTimer: null,
   };
 
@@ -31,6 +32,7 @@
   const COMMENT_H_KEY = 'belair.commentHeight';
   const COLLAPSED_KEY = 'belair.collapsedFiles';
   const WRAP_KEY = 'belair.wordWrap';
+  const THEME_KEY = 'belair.theme';
 
   const $ = (id) => document.getElementById(id);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -62,59 +64,142 @@
   }
 
   // ---------- theme ----------
-  // Custom themes strengthen the diff add/remove backgrounds (both the whole
-  // line and the inline character ranges) so changes are unmistakable in the
-  // side-by-side view; they inherit everything else from the stock vs themes.
-  let themesDefined = false;
-  function defineThemes() {
-    if (themesDefined || !window.monaco) return;
-    monaco.editor.defineTheme('belair-light', {
-      base: 'vs',
-      inherit: true,
-      rules: [],
-      colors: {
-        // Green matches the added-file wash (.belair-added-line, rgba(22,163,74,0.13));
-        // line and inline-char share one value so inserts aren't over-saturated.
-        'diffEditor.insertedLineBackground': '#16a34a21',
-        'diffEditor.removedLineBackground': '#dc262620',
-        'diffEditor.insertedTextBackground': '#16a34a21',
-        'diffEditor.removedTextBackground': '#dc26264d',
-        'diffEditorGutter.insertedLineBackground': '#16a34a40',
-        'diffEditorGutter.removedLineBackground': '#dc262640',
-        'diffEditorOverview.insertedForeground': '#16a34aaa',
-        'diffEditorOverview.removedForeground': '#dc2626aa',
-        'diffEditor.diagonalFill': '#00000014',
-      },
-    });
-    monaco.editor.defineTheme('belair-dark', {
+  // Diff add/remove backgrounds are strengthened so changes are unmistakable;
+  // the same soft green/red is reused across all palettes for consistency.
+  const DIFF_DARK = {
+    'diffEditor.insertedLineBackground': '#22c55e29',
+    'diffEditor.removedLineBackground': '#ef444426',
+    'diffEditor.insertedTextBackground': '#22c55e29',
+    'diffEditor.removedTextBackground': '#ef444459',
+    'diffEditorGutter.insertedLineBackground': '#22c55e4d',
+    'diffEditorGutter.removedLineBackground': '#ef44444d',
+    'diffEditorOverview.insertedForeground': '#22c55eaa',
+    'diffEditorOverview.removedForeground': '#ef4444aa',
+    'diffEditor.diagonalFill': '#ffffff17',
+  };
+  const DIFF_LIGHT = {
+    'diffEditor.insertedLineBackground': '#16a34a21',
+    'diffEditor.removedLineBackground': '#dc262620',
+    'diffEditor.insertedTextBackground': '#16a34a21',
+    'diffEditor.removedTextBackground': '#dc26264d',
+    'diffEditorGutter.insertedLineBackground': '#16a34a40',
+    'diffEditorGutter.removedLineBackground': '#dc262640',
+    'diffEditorOverview.insertedForeground': '#16a34aaa',
+    'diffEditorOverview.removedForeground': '#dc2626aa',
+    'diffEditor.diagonalFill': '#00000014',
+  };
+
+  // Theme registry. Doki Sayori palettes are from the Doki Theme (by
+  // Unthrottled) master definitions; "auto" follows the OS preference.
+  const THEMES = {
+    auto: { label: 'Auto (system)' },
+    light: { label: 'Light', dark: false, monaco: 'belair-light' },
+    dark: { label: 'Dark', dark: true, monaco: 'belair-dark' },
+    'sayori-light': {
+      label: 'Doki Sayori Light',
+      dark: false,
+      monaco: 'sayori-light',
+      bodyClass: 'theme-sayori-light',
+    },
+    'sayori-dark': {
+      label: 'Doki Sayori Dark',
+      dark: true,
+      monaco: 'sayori-dark',
+      bodyClass: 'theme-sayori-dark',
+    },
+  };
+
+  let monacoThemesDefined = false;
+  function defineMonacoThemes() {
+    if (monacoThemesDefined || !window.monaco) return;
+    monaco.editor.defineTheme('belair-light', { base: 'vs', inherit: true, rules: [], colors: { ...DIFF_LIGHT } });
+    monaco.editor.defineTheme('belair-dark', { base: 'vs-dark', inherit: true, rules: [], colors: { ...DIFF_DARK } });
+    monaco.editor.defineTheme('sayori-dark', {
       base: 'vs-dark',
       inherit: true,
-      rules: [],
+      rules: [
+        { token: '', foreground: 'bbbbbb' },
+        { token: 'comment', foreground: '6b7a90', fontStyle: 'italic' },
+        { token: 'string', foreground: 'ff89ba' },
+        { token: 'keyword', foreground: '3f77ef' },
+        { token: 'number', foreground: 'a486fd' },
+        { token: 'constant', foreground: 'a486fd' },
+        { token: 'type', foreground: '52ffa3' },
+        { token: 'class', foreground: '52ffa3' },
+        { token: 'function', foreground: '01cfe7' },
+        { token: 'tag', foreground: '7da6ff' },
+        { token: 'attribute.name', foreground: 'fff37c' },
+      ],
       colors: {
-        // Green matches the added-file wash (body.dark .belair-added-line, rgba(34,197,94,0.16)).
-        'diffEditor.insertedLineBackground': '#22c55e29',
-        'diffEditor.removedLineBackground': '#ef444426',
-        'diffEditor.insertedTextBackground': '#22c55e29',
-        'diffEditor.removedTextBackground': '#ef444459',
-        'diffEditorGutter.insertedLineBackground': '#22c55e4d',
-        'diffEditorGutter.removedLineBackground': '#ef44444d',
-        'diffEditorOverview.insertedForeground': '#22c55eaa',
-        'diffEditorOverview.removedForeground': '#ef4444aa',
-        'diffEditor.diagonalFill': '#ffffff17',
+        'editor.background': '#111b2d',
+        'editor.foreground': '#bbbbbb',
+        'editorLineNumber.foreground': '#666879',
+        'editor.selectionBackground': '#234164',
+        'editorCursor.foreground': '#00bcd4',
+        ...DIFF_DARK,
       },
     });
-    themesDefined = true;
+    monaco.editor.defineTheme('sayori-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: '', foreground: '252427' },
+        { token: 'comment', foreground: '7790af', fontStyle: 'italic' },
+        { token: 'string', foreground: 'e59584' },
+        { token: 'keyword', foreground: '3f77ef' },
+        { token: 'number', foreground: '4c94d6' },
+        { token: 'constant', foreground: '4c94d6' },
+        { token: 'type', foreground: 'ef5d99' },
+        { token: 'class', foreground: 'ef5d99' },
+        { token: 'function', foreground: '2e7093' },
+        { token: 'tag', foreground: '167bba' },
+      ],
+      colors: {
+        'editor.background': '#f0faff',
+        'editor.foreground': '#252427',
+        'editorLineNumber.foreground': '#aaaaaa',
+        'editor.selectionBackground': '#a9c8ec',
+        'editorCursor.foreground': '#2e7093',
+        ...DIFF_LIGHT,
+      },
+    });
+    monacoThemesDefined = true;
   }
 
-  function applyTheme() {
-    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    document.body.classList.toggle('dark', dark);
+  function prefersDark() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  function applyTheme(id) {
+    // Auto follows the OS but defaults to the Doki Sayori palettes.
+    const resolved =
+      id === 'auto' || !THEMES[id] ? (prefersDark() ? 'sayori-dark' : 'sayori-light') : id;
+    const t = THEMES[resolved];
+    document.body.classList.remove('dark', 'theme-sayori-light', 'theme-sayori-dark');
+    if (t.dark) document.body.classList.add('dark');
+    if (t.bodyClass) document.body.classList.add(t.bodyClass);
     if (window.monaco) {
-      defineThemes();
-      monaco.editor.setTheme(dark ? 'belair-dark' : 'belair-light');
+      defineMonacoThemes();
+      monaco.editor.setTheme(t.monaco);
     }
   }
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+
+  function setThemeById(id) {
+    state.theme = THEMES[id] ? id : 'auto';
+    try {
+      localStorage.setItem(THEME_KEY, state.theme);
+    } catch {
+      /* storage disabled */
+    }
+    const sel = $('theme-select');
+    if (sel) sel.value = state.theme;
+    applyTheme(state.theme);
+  }
+
+  // Re-apply on OS change only while following the system.
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (state.theme === 'auto') applyTheme('auto');
+  });
 
   // ---------- editors ----------
   const EDITOR_OPTS = {
@@ -984,7 +1069,14 @@
 
   // ---------- init ----------
   async function init() {
-    applyTheme();
+    let storedTheme = 'auto';
+    try {
+      storedTheme = localStorage.getItem(THEME_KEY) || 'auto';
+    } catch {
+      /* storage disabled */
+    }
+    state.theme = THEMES[storedTheme] ? storedTheme : 'auto';
+    applyTheme(state.theme);
 
     let storedLayout = null;
     try {
@@ -1078,6 +1170,16 @@
     setDiffLayout(state.diffLayout, { rerender: false }); // reflect stored pref in the buttons
     $('btn-wrap').addEventListener('click', () => setWordWrap(!state.wordWrap));
     $('btn-wrap').classList.toggle('active', state.wordWrap); // reflect stored pref
+
+    const themeSel = $('theme-select');
+    for (const [id, t] of Object.entries(THEMES)) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = t.label;
+      themeSel.appendChild(opt);
+    }
+    themeSel.value = state.theme;
+    themeSel.addEventListener('change', () => setThemeById(themeSel.value));
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !$('summary-backdrop').hidden) {

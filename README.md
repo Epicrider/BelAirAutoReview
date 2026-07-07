@@ -257,3 +257,18 @@ BelAirAutoReview (this repo)
   directory without `.review/manifest.json`; pass the manifest path explicitly.
 - **`ANTHROPIC_API_KEY` unset** — only the standalone script needs it; the
   skill path uses your agent session (Claude Code or Cursor) and needs no key.
+
+## Themes
+
+The viewer has a theme selector (top bar): **Auto**, **Light**, **Dark**, and
+**Doki Sayori Light/Dark**. Auto follows your OS light/dark setting and defaults
+to the Doki Sayori palettes; your choice is remembered.
+
+## Credits
+
+The **Doki Sayori** light and dark palettes are from the
+[Doki Theme](https://github.com/doki-theme/doki-theme-vscode) by
+[Unthrottled](https://github.com/Unthrottled), with color definitions from the
+[doki-master-theme](https://github.com/doki-theme/doki-master-theme) repository
+(MIT licensed). Sayori is a character from Doki Doki Literature Club. All credit
+for these color schemes goes to their creator.
