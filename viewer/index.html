@@ -78,6 +78,21 @@
     </div>
   </div>
 
+  <div id="line-comment-backdrop" hidden>
+    <div id="line-comment-panel" role="dialog" aria-label="Line comment" aria-modal="true">
+      <div class="lc-modal-head">
+        <span id="lc-title" class="summary-title">Comment on line</span>
+        <button id="lc-close" title="Close (Esc)">✕</button>
+      </div>
+      <textarea id="lc-input" placeholder="Comment on this line — saved to line-comments.json"></textarea>
+      <div class="lc-modal-actions">
+        <button id="lc-delete" hidden class="lc-delete">Delete</button>
+        <button id="lc-cancel">Cancel</button>
+        <button id="lc-save" class="lc-save">Save</button>
+      </div>
+    </div>
+  </div>
+
   <div id="error-banner" hidden></div>
   <div id="toast" hidden></div>
 

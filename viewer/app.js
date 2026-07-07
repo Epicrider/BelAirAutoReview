@@ -13,7 +13,7 @@
     plainEditor: null,
     diffEditor: null,
     zoneIds: new Map(), // editor → description view zone id
-    openLine: null, // { editor, zoneId } for the currently open line-comment editor
+    lineModal: null, // { step, realLine } while the line-comment modal is open
     plainDecorations: null, // added-line highlight in the plain editor
     diffLayout: 'side-by-side', // 'side-by-side' | 'inline'; persisted
     showAllInfo: false, // whether every step's order rationale is expanded
@@ -281,74 +281,43 @@
       const step = currentStep();
       if (!step || codeEditorFor(step) !== editor) return;
       const realLine = t.position.lineNumber + step.startLine - 1;
-      toggleLineEditor(editor, step, realLine);
+      openLineModal(step, realLine);
     });
   }
 
-  function toggleLineEditor(editor, step, realLine) {
-    // Clicking the same line again closes the open editor (clear on/off).
-    if (state.openLine && state.openLine.editor === editor && state.openLine.realLine === realLine) {
-      closeLineEditor();
-      renderLineComments(editor, step);
-      return;
-    }
-    openLineEditor(editor, step, realLine);
-  }
-
-  function closeLineEditor() {
-    if (!state.openLine) return;
-    const { editor, zoneId } = state.openLine;
-    state.openLine = null;
-    try {
-      editor.changeViewZones((acc) => acc.removeZone(zoneId));
-    } catch {
-      /* zone already gone (e.g. model changed) */
-    }
-  }
-
-  function openLineEditor(editor, step, realLine) {
-    closeLineEditor();
-    const modelLine = realLine - step.startLine + 1;
+  // Editing happens in a small modal OUTSIDE Monaco: interactive controls inside
+  // a view zone can't reliably receive mouse events (Monaco intercepts them in a
+  // capture-phase handler), so inline editing didn't work. View zones are used
+  // only to display saved comments read-only.
+  function openLineModal(step, realLine) {
+    state.lineModal = { step, realLine };
     const existing = lineCommentsFor(step.id)[realLine] || '';
+    $('lc-title').textContent = `Comment on ${step.file} · line ${realLine}`;
+    $('lc-input').value = existing;
+    $('lc-delete').hidden = !existing;
+    $('line-comment-backdrop').hidden = false;
+    setTimeout(() => $('lc-input').focus(), 0);
+  }
 
-    const dom = document.createElement('div');
-    dom.className = 'lc-editor';
-    const ta = document.createElement('textarea');
-    ta.className = 'lc-textarea';
-    ta.value = existing;
-    ta.placeholder = `Comment on line ${realLine}…`;
-    const actions = document.createElement('div');
-    actions.className = 'lc-actions';
-    const save = document.createElement('button');
-    save.textContent = 'Save';
-    const cancel = document.createElement('button');
-    cancel.textContent = 'Cancel';
-    actions.append(save, cancel);
-    if (existing) {
-      const del = document.createElement('button');
-      del.className = 'lc-delete';
-      del.textContent = 'Delete';
-      del.addEventListener('click', () => saveLineComment(step, realLine, ''));
-      actions.append(del);
-    }
-    dom.append(ta, actions);
+  function closeLineModal() {
+    state.lineModal = null;
+    $('line-comment-backdrop').hidden = true;
+  }
 
-    save.addEventListener('click', () => saveLineComment(step, realLine, ta.value));
-    cancel.addEventListener('click', () => {
-      closeLineEditor();
-      renderLineComments(editor, step);
+  function initLineModal() {
+    $('lc-save').addEventListener('click', () => {
+      const m = state.lineModal;
+      if (m) saveLineComment(m.step, m.realLine, $('lc-input').value);
     });
-    // Stop Monaco from grabbing focus/handling input inside the zone — otherwise
-    // clicking the textarea just re-focuses the editor and you can't type.
-    for (const ev of ['mousedown', 'mouseup', 'click', 'dblclick', 'keydown', 'keyup', 'contextmenu']) {
-      dom.addEventListener(ev, (e) => e.stopPropagation());
-    }
-
-    editor.changeViewZones((acc) => {
-      const zoneId = acc.addZone({ afterLineNumber: modelLine, heightInPx: 132, domNode: dom });
-      state.openLine = { editor, zoneId, realLine };
+    $('lc-delete').addEventListener('click', () => {
+      const m = state.lineModal;
+      if (m) saveLineComment(m.step, m.realLine, '');
     });
-    setTimeout(() => ta.focus(), 0);
+    $('lc-cancel').addEventListener('click', closeLineModal);
+    $('lc-close').addEventListener('click', closeLineModal);
+    $('line-comment-backdrop').addEventListener('click', (e) => {
+      if (e.target === $('line-comment-backdrop')) closeLineModal();
+    });
   }
 
   async function saveLineComment(step, realLine, text) {
@@ -368,7 +337,7 @@
       showToast(`Line comment save failed: ${err.message}`, 'error');
       return;
     }
-    closeLineEditor();
+    closeLineModal();
     renderLineComments(codeEditorFor(step), step);
   }
 
@@ -391,10 +360,10 @@
         const tag = document.createElement('span');
         tag.className = 'lc-tag';
         tag.textContent = `💬 line ${realLine}`;
-        const edit = document.createElement('button');
-        edit.textContent = 'Edit';
-        edit.addEventListener('click', () => openLineEditor(editor, step, realLine));
-        bar.append(tag, edit);
+        const hint = document.createElement('span');
+        hint.className = 'lc-edit-hint';
+        hint.textContent = 'click line number to edit';
+        bar.append(tag, hint);
         const body = document.createElement('div');
         body.className = 'lc-body';
         body.textContent = text;
@@ -491,7 +460,7 @@
   }
 
   function showStep(i) {
-    closeLineEditor(); // drop any open line-comment editor from the previous step
+    closeLineModal(); // drop any open line-comment editor from the previous step
     const steps = state.manifest.steps;
     state.idx = Math.max(0, Math.min(i, steps.length - 1));
     const step = steps[state.idx];
@@ -819,6 +788,7 @@
     buildSidebar();
     initResizers();
     initSummary();
+    initLineModal();
 
     $('btn-toggle-info').addEventListener('click', () => setAllInfo(!state.showAllInfo));
 
@@ -835,10 +805,8 @@
         closeSummary();
         return;
       }
-      if (e.key === 'Escape' && state.openLine) {
-        const step = currentStep();
-        closeLineEditor();
-        if (step) renderLineComments(codeEditorFor(step), step);
+      if (e.key === 'Escape' && state.lineModal) {
+        closeLineModal();
         return;
       }
       const t = e.target;

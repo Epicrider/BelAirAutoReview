@@ -250,33 +250,48 @@ body.dark .belair-added-gutter { background: rgba(34, 197, 94, 0.8); }
 }
 .lc-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .lc-tag { font-size: 12px; font-weight: 600; color: var(--dim); }
-.lc-bar button {
-  font-size: 11px;
-  padding: 1px 8px;
-}
+.lc-edit-hint { font-size: 11px; color: var(--dim); font-style: italic; }
 .lc-body { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; }
 
-.lc-editor {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-  background: var(--panel);
-  border-left: 3px solid var(--accent);
-  padding: 8px 10px;
+/* line-comment edit modal (outside Monaco) */
+#line-comment-backdrop[hidden] { display: none; }
+#line-comment-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
 }
-.lc-textarea {
+#line-comment-panel {
+  width: min(560px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  padding: 14px;
+}
+.lc-modal-head { display: flex; align-items: center; justify-content: space-between; }
+#lc-close { border: none; background: transparent; font-size: 16px; line-height: 1; padding: 2px 6px; }
+#lc-input {
   width: 100%;
-  height: 72px;
-  resize: none;
+  height: 120px;
+  resize: vertical;
   font: inherit;
   font-size: 13px;
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 8px;
 }
-.lc-actions { display: flex; gap: 8px; margin-top: 6px; }
-.lc-actions button { font-size: 12px; padding: 3px 12px; }
-.lc-actions .lc-delete { margin-left: auto; color: #b91c1c; border-color: #b91c1c; }
+.lc-modal-actions { display: flex; gap: 8px; align-items: center; }
+.lc-modal-actions .lc-save { margin-left: auto; }
+.lc-modal-actions .lc-delete { color: #b91c1c; border-color: #b91c1c; }
 
 /* ---------- comment box ---------- */
 #comment-box {
