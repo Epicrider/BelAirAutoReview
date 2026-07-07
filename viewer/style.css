@@ -103,11 +103,14 @@ button:disabled { opacity: 0.4; cursor: default; }
   position: sticky;
   top: 0;
   z-index: 2;
+  display: flex;
+  gap: 6px;
   padding: 8px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
-#btn-toggle-info { width: 100%; font-size: 12px; padding: 5px 10px; }
+#sidebar-toolbar button { flex: 1; font-size: 12px; padding: 5px 10px; }
+#sidebar-toolbar button[hidden] { display: none; }
 #sidebar-list { padding: 8px 0 24px; }
 
 /* drag handles for resizing the sidebar (x) and comment area (y) */
@@ -119,16 +122,26 @@ body.resizing-x, body.resizing-x * { cursor: col-resize !important; user-select:
 body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select: none; }
 .file-group { margin-bottom: 8px; }
 .file-name {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   padding: 8px 12px 4px;
   font-size: 12px;
   font-weight: 600;
   color: var(--dim);
-  white-space: nowrap;
+  cursor: pointer;
+}
+.file-name:hover { color: var(--text); }
+.file-chevron { flex: none; font-size: 10px; transition: transform 0.15s ease; }
+.file-group.collapsed .file-chevron { transform: rotate(-90deg); }
+.file-name-text {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   direction: rtl; /* keep the filename tail visible */
   text-align: left;
 }
+.file-group.collapsed .file-steps { display: none; }
 .step-item {
   display: flex;
   align-items: center;
