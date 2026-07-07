@@ -22,11 +22,13 @@
         title="Inline (unified) diff">Inline</button>
     </div>
     <div class="nav">
+      <button id="btn-next-unreviewed" title="Jump to next unreviewed step (u)">Next&nbsp;unreviewed</button>
       <button id="btn-prev" title="Previous step (←)">←&nbsp;Prev</button>
       <span id="progress">Loading…</span>
       <button id="btn-next" title="Next step (→)">Next&nbsp;→</button>
     </div>
   </header>
+  <div id="progress-bar" title="Review progress"><div id="progress-bar-fill"></div></div>
 
   <div id="layout">
     <aside id="sidebar" aria-label="All steps">
@@ -46,6 +48,9 @@
         <span id="step-kind" class="badge"></span>
         <span id="step-symbol" class="mono dim"></span>
         <span class="step-hint dim">click a line number to comment on that line</span>
+        <label id="reviewed-toggle" title="Mark this step reviewed">
+          <input type="checkbox" id="reviewed-check" /> Reviewed
+        </label>
       </div>
 
       <div id="editors">

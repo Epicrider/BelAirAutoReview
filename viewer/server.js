@@ -35,6 +35,7 @@ const manifestPath = path.resolve(
 );
 const commentsPath = path.join(path.dirname(manifestPath), 'comments.json');
 const lineCommentsPath = path.join(path.dirname(manifestPath), 'line-comments.json');
+const reviewedPath = path.join(path.dirname(manifestPath), 'reviewed.json');
 const basePort = parseInt(values.port ?? '4173', 10) || 4173;
 
 const MIME = {
@@ -110,6 +111,22 @@ async function writeLineComments(data) {
   const tmp = lineCommentsPath + '.tmp';
   await fsp.writeFile(tmp, JSON.stringify(data, null, 2) + '\n');
   await fsp.rename(tmp, lineCommentsPath);
+}
+
+// Reviewed state: { "<stepId>": true }
+async function readReviewed() {
+  try {
+    return JSON.parse(await fsp.readFile(reviewedPath, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+async function writeReviewed(data) {
+  await fsp.mkdir(path.dirname(reviewedPath), { recursive: true });
+  const tmp = reviewedPath + '.tmp';
+  await fsp.writeFile(tmp, JSON.stringify(data, null, 2) + '\n');
+  await fsp.rename(tmp, reviewedPath);
 }
 
 // ---------- publishing to a GitHub PR (via the gh CLI) ----------
@@ -294,6 +311,25 @@ const server = http.createServer(async (req, res) => {
       else delete data[body.id];
       await writeLineComments(data);
       sendJson(res, 200, { ok: true, saved: text.trim() !== '' });
+      return;
+    }
+
+    if (pathname === '/api/reviewed' && req.method === 'GET') {
+      sendJson(res, 200, await readReviewed());
+      return;
+    }
+
+    if (pathname === '/api/reviewed' && (req.method === 'PUT' || req.method === 'POST')) {
+      const body = JSON.parse(await readBody(req));
+      if (typeof body.id !== 'string') {
+        sendJson(res, 400, { error: 'expected {id: string, reviewed: bool}' });
+        return;
+      }
+      const data = await readReviewed();
+      if (body.reviewed) data[body.id] = true;
+      else delete data[body.id];
+      await writeReviewed(data);
+      sendJson(res, 200, { ok: true, reviewed: !!body.reviewed });
       return;
     }
 
