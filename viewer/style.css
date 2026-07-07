@@ -180,6 +180,7 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select:
   white-space: nowrap;
 }
 #step-file { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.step-hint { margin-left: auto; font-size: 12px; white-space: nowrap; }
 .badge {
   font-size: 11px;
   padding: 1px 8px;
@@ -231,6 +232,66 @@ body.dark .belair-added-gutter { background: rgba(34, 197, 94, 0.8); }
   font-style: italic;
   color: var(--dim);
 }
+
+/* ---------- per-line comments (inside the editor) ---------- */
+/* clickable line numbers to add a comment */
+.monaco-editor .margin-view-overlays .line-numbers { cursor: pointer; }
+.lc-gutter-dot { width: 3px !important; background: var(--accent); margin-left: 3px; }
+
+.lc-box {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  padding: 6px 10px;
+  color: var(--text);
+}
+.lc-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lc-tag { font-size: 12px; font-weight: 600; color: var(--dim); }
+.lc-edit-hint { font-size: 11px; color: var(--dim); font-style: italic; }
+.lc-body { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; }
+
+/* line-comment edit modal (outside Monaco) */
+#line-comment-backdrop[hidden] { display: none; }
+#line-comment-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+#line-comment-panel {
+  width: min(560px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  padding: 14px;
+}
+.lc-modal-head { display: flex; align-items: center; justify-content: space-between; }
+#lc-close { border: none; background: transparent; font-size: 16px; line-height: 1; padding: 2px 6px; }
+#lc-input {
+  width: 100%;
+  height: 120px;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+.lc-modal-actions { display: flex; gap: 8px; align-items: center; }
+.lc-modal-actions .lc-save { margin-left: auto; }
+.lc-modal-actions .lc-delete { color: #b91c1c; border-color: #b91c1c; }
 
 /* ---------- comment box ---------- */
 #comment-box {

@@ -8,10 +8,12 @@
   const state = {
     manifest: null,
     comments: {},
+    lineComments: {}, // { stepId: { realLine: text } }
     idx: 0,
     plainEditor: null,
     diffEditor: null,
-    zoneIds: new Map(), // editor → view zone id
+    zoneIds: new Map(), // editor → description view zone id
+    lineModal: null, // { step, realLine } while the line-comment modal is open
     plainDecorations: null, // added-line highlight in the plain editor
     diffLayout: 'side-by-side', // 'side-by-side' | 'inline'; persisted
     showAllInfo: false, // whether every step's order rationale is expanded
@@ -121,6 +123,7 @@
   function ensureEditors() {
     if (!state.plainEditor) {
       state.plainEditor = monaco.editor.create($('editor-plain'), { ...EDITOR_OPTS });
+      attachGutterHandler(state.plainEditor);
     }
     if (!state.diffEditor) {
       state.diffEditor = monaco.editor.createDiffEditor($('editor-diff'), {
@@ -136,6 +139,7 @@
         diffAlgorithm: 'advanced',
         renderOverviewRuler: true,
       });
+      attachGutterHandler(state.diffEditor.getModifiedEditor());
     }
   }
 
@@ -234,6 +238,155 @@
     );
   }
 
+  // ---------- per-line comments ----------
+  // Comments anchored to a specific new-side file line, keyed by step id and
+  // real file line. Click a line number to add/edit; saved notes render as
+  // view zones under their line. Only the shown (new/plain) side is supported.
+  function currentStep() {
+    return state.manifest && state.manifest.steps[state.idx];
+  }
+
+  function codeEditorFor(step) {
+    return typeof step.oldCode === 'string'
+      ? state.diffEditor.getModifiedEditor()
+      : state.plainEditor;
+  }
+
+  function lineCommentsFor(id) {
+    return state.lineComments[id] || {};
+  }
+
+  function measureDomHeight(dom, width) {
+    const probe = document.createElement('div');
+    probe.style.cssText = `position:absolute;visibility:hidden;left:-9999px;top:0;width:${Math.max(240, width)}px;`;
+    probe.appendChild(dom.cloneNode(true));
+    document.body.appendChild(probe);
+    const h = probe.firstChild.offsetHeight;
+    probe.remove();
+    return h;
+  }
+
+  function attachGutterHandler(editor) {
+    editor.onMouseDown((e) => {
+      const t = e.target;
+      const types = monaco.editor.MouseTargetType;
+      if (!t || t.position == null) return;
+      // Any part of the left gutter: line numbers, glyph margin, or the line
+      // decorations lane (where the comment dot lives).
+      const gutter =
+        t.type === types.GUTTER_LINE_NUMBERS ||
+        t.type === types.GUTTER_GLYPH_MARGIN ||
+        t.type === types.GUTTER_LINE_DECORATIONS;
+      if (!gutter) return;
+      const step = currentStep();
+      if (!step || codeEditorFor(step) !== editor) return;
+      const realLine = t.position.lineNumber + step.startLine - 1;
+      openLineModal(step, realLine);
+    });
+  }
+
+  // Editing happens in a small modal OUTSIDE Monaco: interactive controls inside
+  // a view zone can't reliably receive mouse events (Monaco intercepts them in a
+  // capture-phase handler), so inline editing didn't work. View zones are used
+  // only to display saved comments read-only.
+  function openLineModal(step, realLine) {
+    state.lineModal = { step, realLine };
+    const existing = lineCommentsFor(step.id)[realLine] || '';
+    $('lc-title').textContent = `Comment on ${step.file} · line ${realLine}`;
+    $('lc-input').value = existing;
+    $('lc-delete').hidden = !existing;
+    $('line-comment-backdrop').hidden = false;
+    setTimeout(() => $('lc-input').focus(), 0);
+  }
+
+  function closeLineModal() {
+    state.lineModal = null;
+    $('line-comment-backdrop').hidden = true;
+  }
+
+  function initLineModal() {
+    $('lc-save').addEventListener('click', () => {
+      const m = state.lineModal;
+      if (m) saveLineComment(m.step, m.realLine, $('lc-input').value);
+    });
+    $('lc-delete').addEventListener('click', () => {
+      const m = state.lineModal;
+      if (m) saveLineComment(m.step, m.realLine, '');
+    });
+    $('lc-cancel').addEventListener('click', closeLineModal);
+    $('lc-close').addEventListener('click', closeLineModal);
+    $('line-comment-backdrop').addEventListener('click', (e) => {
+      if (e.target === $('line-comment-backdrop')) closeLineModal();
+    });
+  }
+
+  async function saveLineComment(step, realLine, text) {
+    try {
+      const res = await fetch('/api/line-comments', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: step.id, line: realLine, text }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const forStep = { ...lineCommentsFor(step.id) };
+      if (text.trim() === '') delete forStep[realLine];
+      else forStep[realLine] = text;
+      if (Object.keys(forStep).length) state.lineComments[step.id] = forStep;
+      else delete state.lineComments[step.id];
+    } catch (err) {
+      showToast(`Line comment save failed: ${err.message}`, 'error');
+      return;
+    }
+    closeLineModal();
+    renderLineComments(codeEditorFor(step), step);
+  }
+
+  function renderLineComments(editor, step) {
+    const byLine = lineCommentsFor(step.id);
+    if (!editor.__lineZoneIds) editor.__lineZoneIds = [];
+    const width = (editor.getLayoutInfo().contentWidth || 600) - 24;
+    editor.changeViewZones((acc) => {
+      for (const id of editor.__lineZoneIds) acc.removeZone(id);
+      editor.__lineZoneIds = [];
+      for (const [lineStr, text] of Object.entries(byLine)) {
+        const realLine = Number(lineStr);
+        const modelLine = realLine - step.startLine + 1;
+        if (modelLine < 1) continue;
+
+        const dom = document.createElement('div');
+        dom.className = 'lc-box';
+        const bar = document.createElement('div');
+        bar.className = 'lc-bar';
+        const tag = document.createElement('span');
+        tag.className = 'lc-tag';
+        tag.textContent = `💬 line ${realLine}`;
+        const hint = document.createElement('span');
+        hint.className = 'lc-edit-hint';
+        hint.textContent = 'click line number to edit';
+        bar.append(tag, hint);
+        const body = document.createElement('div');
+        body.className = 'lc-body';
+        body.textContent = text;
+        dom.append(bar, body);
+
+        const height = measureDomHeight(dom, width) + 8;
+        const id = acc.addZone({ afterLineNumber: modelLine, heightInPx: height, domNode: dom });
+        editor.__lineZoneIds.push(id);
+      }
+    });
+
+    // Mark commented lines in the gutter (per-editor decorations collection).
+    const decos = Object.keys(byLine)
+      .map((lineStr) => Number(lineStr) - step.startLine + 1)
+      .filter((modelLine) => modelLine >= 1)
+      .map((modelLine) => ({
+        range: new monaco.Range(modelLine, 1, modelLine, 1),
+        options: { isWholeLine: true, linesDecorationsClassName: 'lc-gutter-dot' },
+      }));
+    if (!editor.__lineDeco) editor.__lineDeco = editor.createDecorationsCollection(decos);
+    else editor.__lineDeco.set(decos);
+  }
+
   // ---------- description view zone ----------
   function descriptionHtml(step) {
     let html = `<div class="dz-desc">${escapeHtml(step.description)}</div>`;
@@ -307,6 +460,7 @@
   }
 
   function showStep(i) {
+    closeLineModal(); // drop any open line-comment editor from the previous step
     const steps = state.manifest.steps;
     state.idx = Math.max(0, Math.min(i, steps.length - 1));
     const step = steps[state.idx];
@@ -350,6 +504,7 @@
       const h = setZone(editor.getModifiedEditor(), descriptionHtml(step));
       setSpacerZone(editor.getOriginalEditor(), h); // keep the two sides aligned
       revealStep(editor.getModifiedEditor(), modified.getLineCount());
+      renderLineComments(editor.getModifiedEditor(), step);
     } else {
       const editor = state.plainEditor;
       const prev = editor.getModel();
@@ -374,6 +529,7 @@
       }
       setZone(editor, descriptionHtml(step));
       revealStep(editor, model.getLineCount());
+      renderLineComments(editor, step);
     }
 
     const box = $('comment');
@@ -610,6 +766,12 @@
       state.comments = {};
     }
 
+    try {
+      state.lineComments = await (await fetch('/api/line-comments')).json();
+    } catch {
+      state.lineComments = {};
+    }
+
     const target = manifest.source
       ? `${manifest.source.mode ?? ''} — ${manifest.source.target ?? ''}`
       : '';
@@ -626,6 +788,7 @@
     buildSidebar();
     initResizers();
     initSummary();
+    initLineModal();
 
     $('btn-toggle-info').addEventListener('click', () => setAllInfo(!state.showAllInfo));
 
@@ -640,6 +803,10 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !$('summary-backdrop').hidden) {
         closeSummary();
+        return;
+      }
+      if (e.key === 'Escape' && state.lineModal) {
+        closeLineModal();
         return;
       }
       const t = e.target;
