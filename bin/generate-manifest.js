@@ -19,6 +19,7 @@ import path from 'node:path';
 import { collectDiff } from '../src/diff.js';
 import { chunkFiles } from '../src/chunker.js';
 import { buildManifest, validateManifest } from '../src/manifest.js';
+import { reviewDir, reviewKey, writeCurrentPointer } from '../src/review-paths.js';
 
 const { values } = parseArgs({
   options: {
@@ -67,7 +68,8 @@ if (modesSet.length > 1) {
 const mode = modesSet[0] ?? 'working';
 const model = values.model ?? 'claude-opus-4-8';
 const batchSize = Math.max(1, parseInt(values['batch-size'] ?? '8', 10) || 8);
-const outPath = path.resolve(cwd, values.out ?? path.join('.review', 'manifest.json'));
+// Resolved after the target is known (see below) unless -o was given explicitly.
+let outPath = values.out ? path.resolve(cwd, values.out) : null;
 
 const MAX_CODE_CHARS = 8000;
 const truncate = (s) =>
@@ -181,10 +183,15 @@ try {
   }
   console.log(`Chunked into ${chunks.length} chunk(s). Target: ${meta.target}`);
 
+  // Each diff target gets its own .review/<key>/ directory.
+  const key = reviewKey(meta.mode, meta.target);
+  if (!outPath) outPath = path.join(reviewDir(cwd, meta.mode, meta.target), 'manifest.json');
+
   // Keep the intermediate chunks file next to the manifest for debugging/re-runs.
   const chunksDoc = {
     version: 1,
     ...meta,
+    reviewKey: key,
     generatedAt: new Date().toISOString(),
     chunkCount: chunks.length,
     chunks,
@@ -283,6 +290,7 @@ try {
   }
 
   await fs.writeFile(outPath, JSON.stringify(manifest, null, 2) + '\n');
+  await writeCurrentPointer(cwd, key);
   console.log(`\nWrote manifest with ${manifest.steps.length} step(s) to ${outPath}`);
   console.log('View it with: node <BelAirAutoReview>/viewer/server.js  (from this repo)');
 } catch (err) {

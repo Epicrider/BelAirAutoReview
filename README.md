@@ -196,13 +196,23 @@ Notes:
 
 ## How the pieces fit
 
+Each diff target (working tree, a commit range, or a PR) gets its own directory
+under `.review/`, so reviewing a second diff never clobbers the first and your
+comments stay tied to the diff they were made on:
+
 ```
 repo under review
 └── .review/
-    ├── chunks.json         mechanical chunking output (no LLM)
-    ├── review-notes.json   skill path only: the agent's descriptions + order
-    ├── manifest.json       final manifest — the viewer's input
-    └── comments.json       your comments, keyed by step id
+    ├── current.json                    the active review: { key, dir }
+    ├── working/                        uncommitted changes
+    │   ├── chunks.json                 mechanical chunking output (no LLM)
+    │   ├── review-notes.json           skill path only: descriptions + order
+    │   ├── manifest.json               final manifest — the viewer's input
+    │   ├── comments.json               your per-step comments, keyed by step id
+    │   ├── line-comments.json          per-line comments (step id → file line)
+    │   └── reviewed.json               which steps you've marked reviewed
+    ├── pr-owner-repo-123/              a GitHub PR (same files as above)
+    └── range-main-feature-foo/         a commit range (same files as above)
 
 BelAirAutoReview (this repo)
 ├── skills/code-review-manifest/   SKILL.md + wrapper scripts (symlink target)

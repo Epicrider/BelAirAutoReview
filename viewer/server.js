@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import { collectDiff } from '../src/diff.js';
+import { readCurrentPointer } from '../src/review-paths.js';
 
 const viewerDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(viewerDir, '..');
@@ -31,9 +32,16 @@ if (values.help) {
   process.exit(0);
 }
 
-const manifestPath = path.resolve(
-  positionals[0] ?? path.join(process.cwd(), '.review', 'manifest.json')
-);
+// Default to the active review (.review/<key>/manifest.json via current.json),
+// then the legacy flat .review/manifest.json. An explicit path always wins.
+async function resolveManifestPath() {
+  if (positionals[0]) return path.resolve(positionals[0]);
+  const pointer = await readCurrentPointer(process.cwd());
+  if (pointer) return path.resolve(pointer.dir, 'manifest.json');
+  return path.resolve(process.cwd(), '.review', 'manifest.json');
+}
+
+const manifestPath = await resolveManifestPath();
 const commentsPath = path.join(path.dirname(manifestPath), 'comments.json');
 const lineCommentsPath = path.join(path.dirname(manifestPath), 'line-comments.json');
 const reviewedPath = path.join(path.dirname(manifestPath), 'reviewed.json');

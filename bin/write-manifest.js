@@ -12,6 +12,7 @@ import { parseArgs } from 'node:util';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { buildManifest, validateManifest } from '../src/manifest.js';
+import { readCurrentPointer } from '../src/review-paths.js';
 
 const { values } = parseArgs({
   options: {
@@ -29,9 +30,14 @@ if (values.help) {
   process.exit(0);
 }
 
-const chunksPath = path.resolve(values.chunks ?? '.review/chunks.json');
-const notesPath = path.resolve(values.notes ?? '.review/review-notes.json');
-const outPath = path.resolve(values.out ?? '.review/manifest.json');
+// Default all three paths to the active review's directory (.review/<key>/),
+// recorded by chunk.js. Fall back to the legacy flat .review/ layout.
+const pointer = await readCurrentPointer(process.cwd());
+const defaultDir = pointer ? path.resolve(pointer.dir) : path.resolve('.review');
+
+const chunksPath = path.resolve(values.chunks ?? path.join(defaultDir, 'chunks.json'));
+const notesPath = path.resolve(values.notes ?? path.join(defaultDir, 'review-notes.json'));
+const outPath = path.resolve(values.out ?? path.join(defaultDir, 'manifest.json'));
 
 async function readJson(p, label) {
   try {

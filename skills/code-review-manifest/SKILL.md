@@ -40,14 +40,19 @@ default branch) unless they say otherwise.
 node "$SKILL_DIR/scripts/chunk.js" <target flags>
 ```
 
-This writes `.review/chunks.json` and prints an index of chunk ids. If it errors
-(not a git repo, unknown ref, `gh` missing/unauthenticated), surface the problem and
-fix it or ask the user. If it reports 0 chunks, tell the user there is nothing to
-review and stop.
+Each diff target is stored in its own directory, `.review/<key>/` (e.g.
+`.review/working/`, `.review/pr-owner-repo-123/`, `.review/range-main-foo/`), so
+different diffs never share chunks or comments. The script **prints the review
+dir** ("Review dir: …") and records it as the active review in
+`.review/current.json`. Use that printed dir (call it `REVIEW_DIR`) for the file
+paths below. It writes `REVIEW_DIR/chunks.json` and prints an index of chunk ids.
+If it errors (not a git repo, unknown ref, `gh` missing/unauthenticated), surface
+the problem and fix it or ask the user. If it reports 0 chunks, tell the user
+there is nothing to review and stop.
 
 ## Step 2 — Write descriptions (you, in-session)
 
-Read `.review/chunks.json` (read it in slices if large). For **every** chunk id,
+Read `REVIEW_DIR/chunks.json` (read it in slices if large). For **every** chunk id,
 write a 2–4 sentence description based on the chunk's `code` / `oldCode`:
 
 - `changeKind: "modified"` — what changed and why it likely matters.
@@ -75,7 +80,7 @@ placement is non-obvious, record it as that chunk's `orderRationale` (one senten
 
 ## Step 4 — Write review-notes.json
 
-Write `.review/review-notes.json`:
+Write `REVIEW_DIR/review-notes.json`:
 
 ```json
 {
@@ -103,13 +108,14 @@ merges the two.
 node "$SKILL_DIR/scripts/write-manifest.js"
 ```
 
-This merges chunks + notes into `.review/manifest.json` and validates the schema.
-If it reports errors (ids missing from the order, missing descriptions), fix
-`review-notes.json` and re-run until it succeeds.
+This merges chunks + notes into `REVIEW_DIR/manifest.json` (the active review, per
+`.review/current.json`) and validates the schema. If it reports errors (ids missing
+from the order, missing descriptions), fix `review-notes.json` and re-run until it
+succeeds.
 
 ## Step 6 — Hand off to the viewer
 
-Tell the user the manifest is ready at `.review/manifest.json` and that they can
+Tell the user the manifest is ready at `REVIEW_DIR/manifest.json` and that they can
 browse it with:
 
 ```
@@ -117,6 +123,21 @@ node "$SKILL_DIR/scripts/serve.js"
 ```
 
 (run from the reviewed repo; it serves the viewer at http://localhost:4173, picking
-up `.review/manifest.json` automatically). Comments they type in the viewer persist
-to `.review/comments.json`. Do not start the server yourself unless the user asks —
+up the active review automatically). Comments they type in the viewer persist to
+`REVIEW_DIR/comments.json` (and per-line notes to `REVIEW_DIR/line-comments.json`).
+Do not start the server yourself unless the user asks —
 it's a long-running foreground process.
+
+## Acting on review comments later
+
+Because each diff has its own `.review/<key>/` directory, review comments are
+addressable per diff. When the user asks you to "fix according to my review
+comments", resolve **which** diff they mean and read that directory's comments:
+
+- The active review is named in `.review/current.json` (`key` / `dir`).
+- For a specific target, compute the key: `working`; `pr-<owner>-<repo>-<number>`;
+  or `range-<sanitized-range>` (non-alphanumeric runs become `-`).
+- Read `.review/<key>/comments.json` (keyed by step id, e.g. `src/foo.ts:10-42`)
+  and `.review/<key>/line-comments.json` (keyed by step id then real file line).
+  Map each comment back to its file/lines via `.review/<key>/manifest.json`, then
+  make the requested changes for that diff only.
