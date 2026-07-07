@@ -10,6 +10,9 @@
     comments: {},
     lineComments: {}, // { stepId: { realLine: text } }
     reviewed: {}, // { stepId: true }
+    expand: {}, // { stepId: { above, below } } context lines requested
+    overrides: {}, // { stepId: { code, oldCode, newStart, oldStart, chunkFrom, chunkTo, above, below } }
+    newOffset: 0, // real file line of the first shown new-side line (with context)
     idx: 0,
     plainEditor: null,
     diffEditor: null,
@@ -306,7 +309,7 @@
       if (!gutter) return;
       const step = currentStep();
       if (!step || codeEditorFor(step) !== editor) return;
-      const realLine = t.position.lineNumber + step.startLine - 1;
+      const realLine = t.position.lineNumber + state.newOffset - 1;
       openLineModal(step, realLine);
     });
   }
@@ -376,7 +379,7 @@
       editor.__lineZoneIds = [];
       for (const [lineStr, text] of Object.entries(byLine)) {
         const realLine = Number(lineStr);
-        const modelLine = realLine - step.startLine + 1;
+        const modelLine = realLine - state.newOffset + 1;
         if (modelLine < 1) continue;
 
         const dom = document.createElement('div');
@@ -403,7 +406,7 @@
 
     // Mark commented lines in the gutter (per-editor decorations collection).
     const decos = Object.keys(byLine)
-      .map((lineStr) => Number(lineStr) - step.startLine + 1)
+      .map((lineStr) => Number(lineStr) - state.newOffset + 1)
       .filter((modelLine) => modelLine >= 1)
       .map((modelLine) => ({
         range: new monaco.Range(modelLine, 1, modelLine, 1),
@@ -510,12 +513,32 @@
     $('diff-layout').hidden = !hasOld; // layout toggle only applies to diffs
     ensureEditors();
 
+    // A context-expanded view overrides the base chunk code/offsets when present.
+    const exp = state.overrides[step.id];
+    const view = exp || {
+      code: step.code,
+      oldCode: step.oldCode,
+      newStart: step.startLine,
+      oldStart: step.oldStartLine || step.startLine,
+      chunkFrom: 1,
+      chunkTo: null, // null = whole model is the chunk
+      above: 0,
+      below: 0,
+    };
+    state.newOffset = view.newStart;
+
+    // Context controls: available for everything except deleted files (no new side).
+    const canExpand = kind !== 'deleted';
+    $('context-bar').hidden = !canExpand;
+    $('btn-ctx-reset').hidden = !exp;
+    $('ctx-status').textContent = exp ? `showing +${view.above} above · +${view.below} below` : '';
+
     const lang = step.language || 'plaintext';
     if (hasOld) {
       const editor = state.diffEditor;
       const prev = editor.getModel();
-      const original = monaco.editor.createModel(step.oldCode, lang);
-      const modified = monaco.editor.createModel(step.code, lang);
+      const original = monaco.editor.createModel(view.oldCode, lang);
+      const modified = monaco.editor.createModel(view.code, lang);
       editor.setModel({ original, modified });
       if (prev) {
         // Defer disposal so an in-flight diff computation against the old
@@ -525,9 +548,8 @@
           prev.modified?.dispose();
         }, 1000);
       }
-      const oldStart = step.oldStartLine || step.startLine;
-      editor.getOriginalEditor().updateOptions({ lineNumbers: lineNumberFn(oldStart) });
-      editor.getModifiedEditor().updateOptions({ lineNumbers: lineNumberFn(step.startLine) });
+      editor.getOriginalEditor().updateOptions({ lineNumbers: lineNumberFn(view.oldStart) });
+      editor.getModifiedEditor().updateOptions({ lineNumbers: lineNumberFn(view.newStart) });
       const h = setZone(editor.getModifiedEditor(), descriptionHtml(step));
       setSpacerZone(editor.getOriginalEditor(), h); // keep the two sides aligned
       revealStep(editor.getModifiedEditor(), modified.getLineCount());
@@ -535,17 +557,18 @@
     } else {
       const editor = state.plainEditor;
       const prev = editor.getModel();
-      const model = monaco.editor.createModel(step.code, lang);
+      const model = monaco.editor.createModel(view.code, lang);
       editor.setModel(model);
       prev?.dispose();
-      editor.updateOptions({ lineNumbers: lineNumberFn(step.startLine) });
-      // A no-oldCode step is wholly new content — mark every line as added so
-      // additions are highlighted here too, matching the diff view.
+      editor.updateOptions({ lineNumbers: lineNumberFn(view.newStart) });
+      // A no-oldCode step is wholly new content — highlight the chunk region
+      // (not the surrounding context) so additions read like the diff view.
       state.plainDecorations?.clear();
       if (kind === 'added') {
+        const to = view.chunkTo || model.getLineCount();
         state.plainDecorations = editor.createDecorationsCollection([
           {
-            range: new monaco.Range(1, 1, Math.max(1, model.getLineCount()), 1),
+            range: new monaco.Range(view.chunkFrom, 1, Math.max(view.chunkFrom, to), 1),
             options: {
               isWholeLine: true,
               className: 'belair-added-line',
@@ -880,6 +903,85 @@
     showToast('All steps are marked reviewed.', 'success');
   }
 
+  // ---------- expand context on demand ----------
+  const CONTEXT_STEP = 15;
+
+  async function fetchContext(file, start, end, side) {
+    if (start > end) return { lines: [] };
+    const q = new URLSearchParams({ file, start: String(start), end: String(end), side });
+    const res = await fetch(`/api/context?${q}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    return body;
+  }
+
+  function toLines(text) {
+    const arr = String(text).split('\n');
+    if (arr.length && arr[arr.length - 1] === '') arr.pop(); // drop trailing newline artifact
+    return arr;
+  }
+
+  async function buildOverride(step, counts) {
+    const hasOld = typeof step.oldCode === 'string';
+    const newStart = step.startLine;
+    const newEnd = step.endLine;
+    const oldStart = step.oldStartLine || step.startLine;
+
+    const aboveNew = await fetchContext(step.file, newStart - counts.above, newStart - 1, 'new');
+    const belowNew = await fetchContext(step.file, newEnd + 1, newEnd + counts.below, 'new');
+    const aCount = aboveNew.lines.length;
+    const bCount = belowNew.lines.length;
+
+    const chunkNew = toLines(step.code);
+    const newLines = [...aboveNew.lines, ...chunkNew, ...belowNew.lines];
+
+    let oldCode;
+    let oldStartShown = newStart - aCount;
+    if (hasOld) {
+      const oldChunk = toLines(step.oldCode);
+      const oldEnd = oldStart + oldChunk.length - 1;
+      // Match the new-side context counts so unchanged context stays aligned.
+      const aboveOld = await fetchContext(step.file, oldStart - aCount, oldStart - 1, 'old');
+      const belowOld = await fetchContext(step.file, oldEnd + 1, oldEnd + bCount, 'old');
+      oldCode = [...aboveOld.lines, ...oldChunk, ...belowOld.lines].join('\n');
+      oldStartShown = oldStart - aboveOld.lines.length;
+    }
+
+    state.overrides[step.id] = {
+      code: newLines.join('\n'),
+      oldCode,
+      newStart: newStart - aCount,
+      oldStart: oldStartShown,
+      chunkFrom: aCount + 1,
+      chunkTo: aCount + chunkNew.length,
+      above: aCount,
+      below: bCount,
+    };
+  }
+
+  async function expandContext(dir) {
+    const step = currentStep();
+    if (!step) return;
+    if (dir === 'reset') {
+      delete state.expand[step.id];
+      delete state.overrides[step.id];
+      showStep(state.idx);
+      return;
+    }
+    const counts = state.expand[step.id] || { above: 0, below: 0 };
+    if (dir === 'above') counts.above += CONTEXT_STEP;
+    else if (dir === 'below') counts.below += CONTEXT_STEP;
+    state.expand[step.id] = counts;
+    $('ctx-status').textContent = 'loading…';
+    try {
+      await buildOverride(step, counts);
+    } catch (err) {
+      showToast(`Could not load context: ${err.message}`, 'error');
+      return;
+    }
+    showStep(state.idx);
+  }
+
   // ---------- init ----------
   async function init() {
     applyTheme();
@@ -963,6 +1065,9 @@
     $('btn-prev').addEventListener('click', () => showStep(state.idx - 1));
     $('btn-next').addEventListener('click', () => showStep(state.idx + 1));
     $('btn-next-unreviewed').addEventListener('click', jumpToNextUnreviewed);
+    $('btn-ctx-above').addEventListener('click', () => expandContext('above'));
+    $('btn-ctx-below').addEventListener('click', () => expandContext('below'));
+    $('btn-ctx-reset').addEventListener('click', () => expandContext('reset'));
     $('reviewed-check').addEventListener('change', (e) => {
       setReviewed(state.manifest.steps[state.idx].id, e.target.checked);
     });

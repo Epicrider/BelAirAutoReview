@@ -55,6 +55,14 @@
         </label>
       </div>
 
+      <div id="context-bar">
+        <span class="ctx-label dim">Context:</span>
+        <button id="btn-ctx-above" title="Show more lines above">+15 above</button>
+        <button id="btn-ctx-below" title="Show more lines below">+15 below</button>
+        <button id="btn-ctx-reset" title="Collapse back to the chunk" hidden>Reset</button>
+        <span id="ctx-status" class="dim"></span>
+      </div>
+
       <div id="editors">
         <div id="editor-plain" class="editor"></div>
         <div id="editor-diff" class="editor" hidden></div>
