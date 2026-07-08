@@ -1,5 +1,9 @@
 # BelAir Auto Review
 
+![Chevy Bel Air](assets/bel-air.png)
+
+*Chevy Bel Air, the car that inspired the name of this tool.*
+
 Local tool for interactive, manual code review in two phases:
 
 1. **Generate** a review manifest from a diff — chunked at function/class level,
