@@ -1,6 +1,6 @@
 # BelAir Auto Review
 
-![Chevy Bel Air](assets/bel-air.png)
+<img src="assets/bel-air.png" alt="Chevy Bel Air" width="420" />
 
 *Chevy Bel Air, the car that inspired the name of this tool.*
 
