@@ -76,6 +76,8 @@ if (validation.length) {
 await fs.mkdir(path.dirname(outPath), { recursive: true });
 await fs.writeFile(outPath, JSON.stringify(manifest, null, 2) + '\n');
 console.log(`Wrote manifest with ${manifest.steps.length} step(s) to ${outPath}`);
-console.log('\nTo view it, run this exact command in your terminal:\n');
-console.log(`  node ${quote(serverPath)}\n`);
+// --repo pins the reviewed repo so the command works from any directory (the
+// server serves <repo>/.review and runs git/gh there).
+console.log('\nTo view it, run this exact command in your terminal (works from anywhere):\n');
+console.log(`  node ${quote(serverPath)} --repo ${quote(process.cwd())}\n`);
 console.log('Then open http://localhost:4173 . Leave it running; new reviews appear on refresh.');

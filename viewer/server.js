@@ -23,33 +23,52 @@ const monacoRoot = path.join(repoRoot, 'node_modules', 'monaco-editor', 'min');
 const { values, positionals } = parseArgs({
   options: {
     port: { type: 'string', short: 'p' },
+    repo: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
   },
   allowPositionals: true,
 });
 
 if (values.help) {
-  console.log('Usage: node viewer/server.js [path/to/manifest.json] [--port 4173]');
+  console.log(
+    'Usage: node viewer/server.js [--repo <reviewed-repo>] [path/to/manifest.json] [--port 4173]\n' +
+      '  --repo <dir>   the repository that was reviewed (its .review/ is served, and\n' +
+      '                 git/gh run there). Defaults to the current directory.'
+  );
   process.exit(0);
 }
 
 const basePort = parseInt(values.port ?? '4173', 10) || 4173;
 
 // ---------- review roots & per-review paths ----------
-// REVIEW_ROOT is the `.review` directory holding one subdirectory per review
-// (plus, for back-compat, an optional flat manifest.json directly inside it).
-const { reviewRoot: REVIEW_ROOT, initialKey } = resolveRoot();
+// PROJECT_ROOT is the reviewed repo (its .review/ is served and git/gh run there);
+// REVIEW_ROOT is PROJECT_ROOT/.review, holding one subdirectory per review (plus,
+// for back-compat, an optional flat manifest.json directly inside it).
+const { projectRoot: PROJECT_ROOT, reviewRoot: REVIEW_ROOT, initialKey } = resolveRoot();
 
 function resolveRoot() {
+  // Explicit --repo wins and is cwd-independent (what write-manifest.js prints).
+  if (values.repo) {
+    const root = path.resolve(values.repo);
+    return { projectRoot: root, reviewRoot: path.join(root, '.review'), initialKey: null };
+  }
   if (positionals[0]) {
     const abs = path.resolve(positionals[0]);
     const dir = path.dirname(abs); // folder containing the given manifest.json
     const parent = path.dirname(dir);
-    if (path.basename(dir) === '.review') return { reviewRoot: dir, initialKey: '' };
-    if (path.basename(parent) === '.review') return { reviewRoot: parent, initialKey: path.basename(dir) };
-    return { reviewRoot: dir, initialKey: '' }; // treat the manifest's folder as a single review
+    if (path.basename(dir) === '.review') {
+      return { projectRoot: parent, reviewRoot: dir, initialKey: '' };
+    }
+    if (path.basename(parent) === '.review') {
+      return { projectRoot: path.dirname(parent), reviewRoot: parent, initialKey: path.basename(dir) };
+    }
+    return { projectRoot: path.dirname(dir), reviewRoot: dir, initialKey: '' };
   }
-  return { reviewRoot: path.resolve(process.cwd(), '.review'), initialKey: null };
+  return {
+    projectRoot: process.cwd(),
+    reviewRoot: path.resolve(process.cwd(), '.review'),
+    initialKey: null,
+  };
 }
 
 const VALID_KEY = /^[a-z0-9-]+$/i;
@@ -245,12 +264,12 @@ async function getFileSource(key) {
   if (!manifest) throw new Error('manifest not found');
   const src = manifest.source || {};
   let opts;
-  if (src.mode === 'working') opts = { mode: 'working', cwd: process.cwd() };
-  else if (src.mode === 'range') opts = { mode: 'range', range: src.target, cwd: process.cwd() };
+  if (src.mode === 'working') opts = { mode: 'working', cwd: PROJECT_ROOT };
+  else if (src.mode === 'range') opts = { mode: 'range', range: src.target, cwd: PROJECT_ROOT };
   else if (src.mode === 'pr') {
     const m = String(src.target).match(/^([^/]+\/[^#]+)#(\d+)$/);
     if (!m) throw new Error(`cannot parse PR target "${src.target}"`);
-    opts = { mode: 'pr', pr: m[2], repo: m[1], cwd: process.cwd() };
+    opts = { mode: 'pr', pr: m[2], repo: m[1], cwd: PROJECT_ROOT };
   } else {
     throw new Error(`unknown manifest source mode: ${src.mode}`);
   }
@@ -646,7 +665,13 @@ function listen(port, attemptsLeft) {
   });
   server.listen(port, '127.0.0.1', () => {
     console.log(`BelAir review viewer`);
-    console.log(`  reviews: ${REVIEW_ROOT}${fs.existsSync(REVIEW_ROOT) ? '' : '  (none yet — generate one, then refresh)'}`);
+    console.log(`  repo:    ${PROJECT_ROOT}`);
+    if (fs.existsSync(REVIEW_ROOT)) {
+      console.log(`  reviews: ${REVIEW_ROOT}`);
+    } else {
+      console.log(`  reviews: ${REVIEW_ROOT}  (NOT FOUND)`);
+      console.log(`  → No .review here. Run this from the reviewed repo, or pass --repo <that repo>.`);
+    }
     if (!fs.existsSync(monacoRoot)) {
       console.log(`  WARNING: monaco-editor not found — run \`npm install\` in ${repoRoot}`);
     }
