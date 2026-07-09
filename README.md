@@ -128,7 +128,7 @@ agent, and the skill never calls the API.
 
 ## Phase 2 — browse in the viewer
 
-From the reviewed repo (it picks up `./.review/manifest.json` by default):
+From the reviewed repo (it serves reviews from `./.review` by default):
 
 ```sh
 node <repo>/viewer/server.js
@@ -136,8 +136,19 @@ node <repo>/viewer/server.js
 node <repo>/viewer/server.js path/to/manifest.json --port 4173
 ```
 
+`write-manifest.js` / `generate-manifest.js` print this exact command (with an
+absolute path) when they finish, so you can copy-paste it.
+
+The server is **persistent and multi-review**: start it once and leave it
+running. It serves every review under `.review/` — a **review picker** in the top
+bar switches between diffs, and each new review you generate shows up on refresh
+(no restart needed). Comments, line comments, and reviewed state are stored per
+review, so they never bleed across diffs.
+
 Open http://localhost:4173. The viewer gives you:
 
+- A **review picker** (top bar) to switch between diffs; it defaults to the most
+  recently generated review.
 - Monaco rendering with syntax highlighting per step (`language` field);
   a **side-by-side diff editor** when a step has `oldCode`, a read-only editor
   otherwise. Line numbers match the real file lines.
@@ -149,8 +160,8 @@ Open http://localhost:4173. The viewer gives you:
   with an `orderRationale` show a ⓘ — hover for the rationale, click to pin it
   inline. Steps with comments show 💬.
 - A **comment textarea** below each step. Comments autosave (debounced) to
-  `comments.json` **next to the manifest** (`.review/comments.json`), keyed by
-  step id, and reload on refresh. Clearing a comment deletes its key.
+  `comments.json` **in the active review's dir** (`.review/<key>/comments.json`),
+  keyed by step id, and reload on refresh. Clearing a comment deletes its key.
 - A **Summary** button (only when the manifest has a `summary`) that opens a
   read-only, agent-written overview of the whole change.
 - A **Publish to PR** button (only for PR-mode manifests) that posts your
