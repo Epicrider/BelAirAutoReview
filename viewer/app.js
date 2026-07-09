@@ -25,7 +25,9 @@
     collapsedFiles: new Set(), // sidebar file groups collapsed by the user
     theme: 'auto', // 'auto' | 'light' | 'dark' | 'sayori-light' | 'sayori-dark'
     sidebarView: 'steps', // 'steps' | 'files'
+    filesBuilt: false, // Files view built once and cached
     viewingFile: null, // path of a full file loaded in the code view, or null
+    fileCache: null, // { path, newContent, oldContent, changeKind } for the open file
     saveTimer: null,
   };
 
@@ -259,8 +261,9 @@
     if (state.diffEditor) {
       state.diffEditor.updateOptions({ renderSideBySide: state.diffLayout === 'side-by-side' });
     }
-    // Re-render the current step so view-zone alignment matches the new layout.
-    if (rerender && state.manifest) showStep(state.idx);
+    // Re-render whatever's shown (step or full-file diff) so view-zone alignment
+    // matches the new layout.
+    if (rerender) rerenderCurrent();
   }
 
   // ---------- word wrap toggle ----------
@@ -589,6 +592,7 @@
     if (state.viewingFile) {
       // Leaving the full-file view; restore the step controls.
       state.viewingFile = null;
+      state.fileCache = null;
       $('btn-back-to-review').hidden = true;
       $('comment-box').hidden = false;
       $('comment-resizer').hidden = false;
@@ -705,6 +709,8 @@
         el.scrollIntoView({ block: 'nearest' });
       }
     }
+    // In the Files view, highlight the row for this step's file.
+    if (state.sidebarView === 'files') markActiveFileRow(step.file);
   }
 
   // ---------- sidebar ----------
@@ -798,7 +804,7 @@
       group.appendChild(stepsWrap);
       frag.appendChild(group);
     }
-    const list = $('sidebar-list');
+    const list = $('steps-list');
     list.textContent = '';
     list.appendChild(frag);
 
@@ -808,6 +814,12 @@
   }
 
   // ---------- collapsible file groups ----------
+  // The active sidebar container (Steps or Files); collapse operations are
+  // scoped to it since both use .file-group.
+  function activeListEl() {
+    return state.sidebarView === 'files' ? $('files-list') : $('steps-list');
+  }
+
   function toggleFileGroup(group, file) {
     const collapsed = group.classList.toggle('collapsed');
     if (collapsed) state.collapsedFiles.add(file);
@@ -825,18 +837,19 @@
   }
 
   function updateCollapseAllLabel() {
-    const groups = document.querySelectorAll('#sidebar-list .file-group');
+    const groups = activeListEl().querySelectorAll('.file-group');
     const anyOpen = [...groups].some((g) => !g.classList.contains('collapsed'));
     $('btn-collapse-all').textContent = anyOpen ? 'Collapse all' : 'Expand all';
   }
 
   function toggleCollapseAll() {
-    const groups = [...document.querySelectorAll('#sidebar-list .file-group')];
+    const groups = [...activeListEl().querySelectorAll('.file-group')];
     const collapse = groups.some((g) => !g.classList.contains('collapsed'));
-    state.collapsedFiles = new Set();
+    // Only touch keys for the active view; keep the other view's collapse state.
     for (const g of groups) {
       g.classList.toggle('collapsed', collapse);
       if (collapse) state.collapsedFiles.add(g.dataset.file);
+      else state.collapsedFiles.delete(g.dataset.file);
     }
     saveCollapsedFiles();
     updateCollapseAllLabel();
@@ -847,7 +860,7 @@
     state.showAllInfo = show;
     const btn = $('btn-toggle-info');
     if (btn) btn.textContent = show ? 'Hide all info' : 'Show all info';
-    const list = $('sidebar-list');
+    const list = $('steps-list');
     for (const r of list.querySelectorAll('.rationale-inline')) r.remove();
     if (show) {
       for (const item of list.querySelectorAll('.step-item')) {
@@ -1008,6 +1021,8 @@
   }
 
   // ---------- sidebar view (steps vs files) ----------
+  // Both views stay mounted; switching just toggles visibility so the Files
+  // tree isn't refetched/rebuilt each time. Each is built lazily once.
   function setSidebarView(view) {
     state.sidebarView = view === 'files' ? 'files' : 'steps';
     try {
@@ -1018,10 +1033,17 @@
     for (const btn of document.querySelectorAll('#sidebar-view .seg-btn')) {
       btn.classList.toggle('active', btn.dataset.view === state.sidebarView);
     }
+    const showFiles = state.sidebarView === 'files';
+    $('steps-list').hidden = showFiles;
+    $('files-list').hidden = !showFiles;
     // The show/hide-all-info control only applies to the steps view.
-    $('btn-toggle-info').hidden = state.sidebarView !== 'steps' || !stepsHaveRationale();
-    if (state.sidebarView === 'files') buildFilesView();
-    else buildSidebar();
+    $('btn-toggle-info').hidden = showFiles || !stepsHaveRationale();
+    if (showFiles && !state.filesBuilt) {
+      buildFilesView(); // builds once; sets the active-row highlight
+    } else {
+      updateCollapseAllLabel();
+      if (showFiles) markActiveFileRow(state.viewingFile || (currentStep() && currentStep().file));
+    }
   }
 
   function stepsHaveRationale() {
@@ -1029,9 +1051,10 @@
   }
 
   // File tree: every file in the changed folders (from /api/tree). Changed files
-  // jump to their step; other files load full in the code view.
+  // jump to their step; other files load full in the code view. Built once and
+  // cached; the tree is stable for the life of the review.
   async function buildFilesView() {
-    const list = $('sidebar-list');
+    const list = $('files-list');
     list.textContent = 'Loading files…';
     let tree;
     try {
@@ -1069,6 +1092,7 @@
       for (const f of folder.files) {
         const item = document.createElement('div');
         item.className = 'file-item' + (f.changed ? ' changed' : '');
+        item.dataset.path = f.path;
         const label = document.createElement('span');
         label.className = 'step-label';
         label.textContent = f.name;
@@ -1079,10 +1103,7 @@
           badge.textContent = '●';
           badge.title = 'Has changes in this review';
           item.appendChild(badge);
-          item.addEventListener('click', () => {
-            setSidebarViewButtonsOnly();
-            showStep(f.stepIdx);
-          });
+          item.addEventListener('click', () => showStep(f.stepIdx));
         } else {
           item.title = 'Load full file (no changes in this review)';
           item.addEventListener('click', () => showFile(f.path));
@@ -1094,13 +1115,20 @@
     }
     list.textContent = '';
     list.appendChild(frag);
+    state.filesBuilt = true;
     updateCollapseAllLabel();
+    // Reflect whatever the code panel is currently showing.
+    markActiveFileRow(state.viewingFile || (currentStep() && currentStep().file));
   }
 
-  // When jumping to a step from the files view, keep the files view selected in
-  // the toggle but let showStep render normally (it highlights via #sidebar too).
-  function setSidebarViewButtonsOnly() {
-    /* no-op hook kept for clarity; the toggle state is unchanged */
+  // Highlight the file row matching a path (or clear all when null). A file with
+  // several steps still highlights once, by path.
+  function markActiveFileRow(activePath) {
+    for (const el of document.querySelectorAll('#sidebar .file-item')) {
+      const active = activePath != null && el.dataset.path === activePath;
+      el.classList.toggle('active', active);
+      if (active) el.scrollIntoView({ block: 'nearest' });
+    }
   }
 
   // ---------- full-file view in the code panel ----------
@@ -1118,55 +1146,128 @@
     return EXT_LANG[ext] || 'plaintext';
   }
 
+  async function fetchFileContent(filePath, side) {
+    const q = new URLSearchParams({ file: filePath, side });
+    const res = await fetch(`/api/file?${q}`);
+    const d = await res.json();
+    if (!res.ok || d.error) throw new Error(d.error || `HTTP ${res.status}`);
+    return d.content;
+  }
+
+  // Load an entire file into the code view. A modified file is shown as a
+  // whole-file diff (full old vs full new) so add/remove highlights are kept;
+  // an added file shows plain with the added-line wash; an unchanged file
+  // browsed from the Files view shows plain. Content is cached to avoid
+  // refetching on re-render (wrap/resize).
   async function showFile(filePath) {
     ensureEditors();
-    let data;
-    try {
-      data = await (await fetch(`/api/file?file=${encodeURIComponent(filePath)}`)).json();
-      if (data.error) throw new Error(data.error);
-    } catch (err) {
-      showToast(`Could not load ${filePath}: ${err.message}`, 'error');
-      return;
+    const step = state.manifest.steps.find((s) => s.file === filePath);
+    const changeKind = step
+      ? step.changeKind || (typeof step.oldCode === 'string' ? 'modified' : 'added')
+      : 'unchanged';
+    const wantDiff = changeKind === 'modified';
+
+    let cache = state.fileCache;
+    if (!cache || cache.path !== filePath) {
+      try {
+        const newContent = await fetchFileContent(filePath, 'new');
+        const oldContent = wantDiff ? await fetchFileContent(filePath, 'old') : null;
+        cache = { path: filePath, newContent, oldContent, changeKind };
+      } catch (err) {
+        showToast(`Could not load ${filePath}: ${err.message}`, 'error');
+        return;
+      }
+      state.fileCache = cache;
     }
+
     closeLineModal();
     state.viewingFile = filePath;
 
-    // Header + layout for a read-only full-file view (no diff, no step controls).
+    // Header + step controls off (this is a file, not a review step).
     $('step-file').textContent = filePath;
-    $('step-lines').textContent = `(full file · ${data.lineCount} lines)`;
-    const kindEl = $('step-kind');
-    kindEl.textContent = 'file';
-    kindEl.className = 'badge';
     $('step-symbol').textContent = '';
-    $('editor-plain').hidden = false;
-    $('editor-diff').hidden = true;
-    $('diff-layout').hidden = true;
     $('context-bar').hidden = true;
     $('comment-box').hidden = true;
     $('comment-resizer').hidden = true;
     $('reviewed-toggle').style.display = 'none';
     $('btn-back-to-review').hidden = false;
-
-    const editor = state.plainEditor;
-    const prev = editor.getModel();
-    editor.setModel(monaco.editor.createModel(data.content, guessLang(filePath)));
-    prev?.dispose();
-    editor.updateOptions({ lineNumbers: 'on' });
     state.newOffset = 1;
-    state.plainDecorations?.clear();
-    editor.__lineDeco?.clear();
-    editor.changeViewZones((acc) => {
-      for (const id of editor.__lineZoneIds || []) acc.removeZone(id);
-      editor.__lineZoneIds = [];
-    });
-    setZone(editor, ''); // no description zone
-    editor.setScrollTop(0);
+
+    const kindEl = $('step-kind');
+    const lang = guessLang(filePath);
+
+    if (wantDiff && cache.oldContent != null) {
+      // Whole-file diff — keeps the add/remove highlights across the file.
+      $('editor-plain').hidden = true;
+      $('editor-diff').hidden = false;
+      $('diff-layout').hidden = false;
+      const lines = cache.newContent.split('\n').length;
+      $('step-lines').textContent = `(full file · ${lines} lines)`;
+      kindEl.textContent = 'modified';
+      kindEl.className = 'badge badge-modified';
+
+      const editor = state.diffEditor;
+      const prev = editor.getModel();
+      const original = monaco.editor.createModel(cache.oldContent, lang);
+      const modified = monaco.editor.createModel(cache.newContent, lang);
+      editor.setModel({ original, modified });
+      if (prev) {
+        setTimeout(() => {
+          prev.original?.dispose();
+          prev.modified?.dispose();
+        }, 1000);
+      }
+      editor.getOriginalEditor().updateOptions({ lineNumbers: 'on' });
+      editor.getModifiedEditor().updateOptions({ lineNumbers: 'on' });
+      const me = editor.getModifiedEditor();
+      me.__lineDeco?.clear();
+      setZone(me, ''); // no description zone
+      setSpacerZone(editor.getOriginalEditor(), 0);
+      me.setScrollTop(0);
+    } else {
+      // Plain full file (added or unchanged) — added files get the green wash.
+      $('editor-plain').hidden = false;
+      $('editor-diff').hidden = true;
+      $('diff-layout').hidden = true;
+      $('step-lines').textContent = `(full file · ${cache.newContent.split('\n').length} lines)`;
+      kindEl.textContent = changeKind === 'added' ? 'added' : 'file';
+      kindEl.className = changeKind === 'added' ? 'badge badge-added' : 'badge';
+
+      const editor = state.plainEditor;
+      const prev = editor.getModel();
+      const model = monaco.editor.createModel(cache.newContent, lang);
+      editor.setModel(model);
+      prev?.dispose();
+      editor.updateOptions({ lineNumbers: 'on' });
+      state.plainDecorations?.clear();
+      if (changeKind === 'added') {
+        state.plainDecorations = editor.createDecorationsCollection([
+          {
+            range: new monaco.Range(1, 1, Math.max(1, model.getLineCount()), 1),
+            options: {
+              isWholeLine: true,
+              className: 'belair-added-line',
+              linesDecorationsClassName: 'belair-added-gutter',
+            },
+          },
+        ]);
+      }
+      editor.__lineDeco?.clear();
+      editor.changeViewZones((acc) => {
+        for (const id of editor.__lineZoneIds || []) acc.removeZone(id);
+        editor.__lineZoneIds = [];
+      });
+      setZone(editor, ''); // no description zone
+      editor.setScrollTop(0);
+    }
 
     for (const el of document.querySelectorAll('#sidebar .step-item')) el.classList.remove('active');
+    markActiveFileRow(filePath); // highlight the row in the Files view
   }
 
   function backToReview() {
     state.viewingFile = null;
+    state.fileCache = null;
     $('btn-back-to-review').hidden = true;
     $('comment-box').hidden = false;
     $('comment-resizer').hidden = false;
@@ -1428,13 +1529,8 @@
     });
 
     showStep(0);
-    if (state.sidebarView === 'files') setSidebarView('files');
-    else {
-      // reflect the toggle's active state for the default steps view
-      for (const btn of document.querySelectorAll('#sidebar-view .seg-btn')) {
-        btn.classList.toggle('active', btn.dataset.view === 'steps');
-      }
-    }
+    // Apply the persisted sidebar view (builds Files lazily if that's the default).
+    setSidebarView(state.sidebarView);
   }
 
   window.__startApp = init;

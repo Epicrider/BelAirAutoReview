@@ -154,6 +154,11 @@ button:disabled { opacity: 0.4; cursor: default; }
   overflow: hidden;
 }
 .file-item:hover { background: var(--bg); }
+.file-item.active {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  padding-left: 17px;
+}
 .file-item .step-label { overflow: hidden; text-overflow: ellipsis; }
 .file-item:not(.changed) .step-label { color: var(--dim); }
 .file-item.changed .step-label { font-weight: 600; }
