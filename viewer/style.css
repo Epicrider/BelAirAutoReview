@@ -124,6 +124,12 @@ button:disabled { opacity: 0.4; cursor: default; }
   border-right: 1px solid var(--border);
   padding: 0;
 }
+#sidebar-viewbar {
+  padding: 8px 12px 0;
+  background: var(--panel);
+}
+#sidebar-view.segmented { display: flex; width: 100%; }
+#sidebar-view .seg-btn { flex: 1; }
 #sidebar-toolbar {
   position: sticky;
   top: 0;
@@ -134,6 +140,30 @@ button:disabled { opacity: 0.4; cursor: default; }
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
+
+/* file tree (Files view) */
+.file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 5px 12px 5px 20px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.file-item:hover { background: var(--bg); }
+.file-item.active {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  padding-left: 17px;
+}
+.file-item .step-label { overflow: hidden; text-overflow: ellipsis; }
+.file-item:not(.changed) .step-label { color: var(--dim); }
+.file-item.changed .step-label { font-weight: 600; }
+.file-changed-dot { flex: none; color: var(--accent); font-size: 9px; }
+#btn-back-to-review { margin-left: auto; font-size: 12px; padding: 2px 10px; }
 #sidebar-toolbar button { flex: 1; font-size: 12px; padding: 5px 10px; }
 #sidebar-toolbar button[hidden] { display: none; }
 #sidebar-list { padding: 8px 0 24px; }

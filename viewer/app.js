@@ -24,6 +24,10 @@
     showAllInfo: false, // whether every step's order rationale is expanded
     collapsedFiles: new Set(), // sidebar file groups collapsed by the user
     theme: 'auto', // 'auto' | 'light' | 'dark' | 'sayori-light' | 'sayori-dark'
+    sidebarView: 'steps', // 'steps' | 'files'
+    filesBuilt: false, // Files view built once and cached
+    viewingFile: null, // path of a full file loaded in the code view, or null
+    fileCache: null, // { path, newContent, oldContent, changeKind } for the open file
     saveTimer: null,
   };
 
@@ -33,6 +37,7 @@
   const COLLAPSED_KEY = 'belair.collapsedFiles';
   const WRAP_KEY = 'belair.wordWrap';
   const THEME_KEY = 'belair.theme';
+  const SIDEBAR_VIEW_KEY = 'belair.sidebarView';
 
   const $ = (id) => document.getElementById(id);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -256,8 +261,9 @@
     if (state.diffEditor) {
       state.diffEditor.updateOptions({ renderSideBySide: state.diffLayout === 'side-by-side' });
     }
-    // Re-render the current step so view-zone alignment matches the new layout.
-    if (rerender && state.manifest) showStep(state.idx);
+    // Re-render whatever's shown (step or full-file diff) so view-zone alignment
+    // matches the new layout.
+    if (rerender) rerenderCurrent();
   }
 
   // ---------- word wrap toggle ----------
@@ -276,7 +282,14 @@
       state.diffEditor.getModifiedEditor().updateOptions({ wordWrap: wrap });
     }
     // Wrapping changes line heights, so re-render to keep view zones aligned.
-    if (rerender && state.manifest) showStep(state.idx);
+    if (rerender) rerenderCurrent();
+  }
+
+  // Re-render whatever the code panel is currently showing (a step, or a full
+  // file) without switching between them.
+  function rerenderCurrent() {
+    if (state.viewingFile) showFile(state.viewingFile);
+    else if (state.manifest) showStep(state.idx);
   }
 
   // ---------- resizable panels ----------
@@ -307,7 +320,7 @@
         } catch {
           /* storage disabled */
         }
-        if (state.manifest) showStep(state.idx);
+        rerenderCurrent();
       };
       handle.addEventListener('pointermove', move);
       handle.addEventListener('pointerup', up);
@@ -392,6 +405,7 @@
         t.type === types.GUTTER_GLYPH_MARGIN ||
         t.type === types.GUTTER_LINE_DECORATIONS;
       if (!gutter) return;
+      if (state.viewingFile) return; // no line comments in the raw full-file view
       const step = currentStep();
       if (!step || codeEditorFor(step) !== editor) return;
       const realLine = t.position.lineNumber + state.newOffset - 1;
@@ -575,6 +589,15 @@
 
   function showStep(i) {
     closeLineModal(); // drop any open line-comment editor from the previous step
+    if (state.viewingFile) {
+      // Leaving the full-file view; restore the step controls.
+      state.viewingFile = null;
+      state.fileCache = null;
+      $('btn-back-to-review').hidden = true;
+      $('comment-box').hidden = false;
+      $('comment-resizer').hidden = false;
+      $('reviewed-toggle').style.display = '';
+    }
     const steps = state.manifest.steps;
     state.idx = Math.max(0, Math.min(i, steps.length - 1));
     const step = steps[state.idx];
@@ -686,6 +709,8 @@
         el.scrollIntoView({ block: 'nearest' });
       }
     }
+    // In the Files view, highlight the row for this step's file.
+    if (state.sidebarView === 'files') markActiveFileRow(step.file);
   }
 
   // ---------- sidebar ----------
@@ -779,7 +804,7 @@
       group.appendChild(stepsWrap);
       frag.appendChild(group);
     }
-    const list = $('sidebar-list');
+    const list = $('steps-list');
     list.textContent = '';
     list.appendChild(frag);
 
@@ -789,6 +814,12 @@
   }
 
   // ---------- collapsible file groups ----------
+  // The active sidebar container (Steps or Files); collapse operations are
+  // scoped to it since both use .file-group.
+  function activeListEl() {
+    return state.sidebarView === 'files' ? $('files-list') : $('steps-list');
+  }
+
   function toggleFileGroup(group, file) {
     const collapsed = group.classList.toggle('collapsed');
     if (collapsed) state.collapsedFiles.add(file);
@@ -806,18 +837,19 @@
   }
 
   function updateCollapseAllLabel() {
-    const groups = document.querySelectorAll('#sidebar-list .file-group');
+    const groups = activeListEl().querySelectorAll('.file-group');
     const anyOpen = [...groups].some((g) => !g.classList.contains('collapsed'));
     $('btn-collapse-all').textContent = anyOpen ? 'Collapse all' : 'Expand all';
   }
 
   function toggleCollapseAll() {
-    const groups = [...document.querySelectorAll('#sidebar-list .file-group')];
+    const groups = [...activeListEl().querySelectorAll('.file-group')];
     const collapse = groups.some((g) => !g.classList.contains('collapsed'));
-    state.collapsedFiles = new Set();
+    // Only touch keys for the active view; keep the other view's collapse state.
     for (const g of groups) {
       g.classList.toggle('collapsed', collapse);
       if (collapse) state.collapsedFiles.add(g.dataset.file);
+      else state.collapsedFiles.delete(g.dataset.file);
     }
     saveCollapsedFiles();
     updateCollapseAllLabel();
@@ -828,7 +860,7 @@
     state.showAllInfo = show;
     const btn = $('btn-toggle-info');
     if (btn) btn.textContent = show ? 'Hide all info' : 'Show all info';
-    const list = $('sidebar-list');
+    const list = $('steps-list');
     for (const r of list.querySelectorAll('.rationale-inline')) r.remove();
     if (show) {
       for (const item of list.querySelectorAll('.step-item')) {
@@ -988,6 +1020,261 @@
     showToast('All steps are marked reviewed.', 'success');
   }
 
+  // ---------- sidebar view (steps vs files) ----------
+  // Both views stay mounted; switching just toggles visibility so the Files
+  // tree isn't refetched/rebuilt each time. Each is built lazily once.
+  function setSidebarView(view) {
+    state.sidebarView = view === 'files' ? 'files' : 'steps';
+    try {
+      localStorage.setItem(SIDEBAR_VIEW_KEY, state.sidebarView);
+    } catch {
+      /* storage disabled */
+    }
+    for (const btn of document.querySelectorAll('#sidebar-view .seg-btn')) {
+      btn.classList.toggle('active', btn.dataset.view === state.sidebarView);
+    }
+    const showFiles = state.sidebarView === 'files';
+    $('steps-list').hidden = showFiles;
+    $('files-list').hidden = !showFiles;
+    // The show/hide-all-info control only applies to the steps view.
+    $('btn-toggle-info').hidden = showFiles || !stepsHaveRationale();
+    if (showFiles && !state.filesBuilt) {
+      buildFilesView(); // builds once; sets the active-row highlight
+    } else {
+      updateCollapseAllLabel();
+      if (showFiles) markActiveFileRow(state.viewingFile || (currentStep() && currentStep().file));
+    }
+  }
+
+  function stepsHaveRationale() {
+    return state.manifest && state.manifest.steps.some((s) => s.orderRationale);
+  }
+
+  // File tree: every file in the changed folders (from /api/tree). Changed files
+  // jump to their step; other files load full in the code view. Built once and
+  // cached; the tree is stable for the life of the review.
+  async function buildFilesView() {
+    const list = $('files-list');
+    list.textContent = 'Loading files…';
+    let tree;
+    try {
+      tree = await (await fetch('/api/tree')).json();
+      if (tree.error) throw new Error(tree.error);
+    } catch (err) {
+      list.textContent = '';
+      showToast(`Could not load file tree: ${err.message}`, 'error');
+      return;
+    }
+
+    const frag = document.createDocumentFragment();
+    for (const folder of tree.folders) {
+      const group = document.createElement('div');
+      group.className = 'file-group';
+      const dirKey = `dir:${folder.dir}`;
+      group.dataset.file = dirKey;
+      if (state.collapsedFiles.has(dirKey)) group.classList.add('collapsed');
+
+      const h = document.createElement('div');
+      h.className = 'file-name mono';
+      h.title = folder.dir || '(repo root)';
+      const chevron = document.createElement('span');
+      chevron.className = 'file-chevron';
+      chevron.textContent = '▾';
+      const name = document.createElement('span');
+      name.className = 'file-name-text';
+      name.textContent = folder.dir || '(repo root)';
+      h.append(chevron, name);
+      h.addEventListener('click', () => toggleFileGroup(group, dirKey));
+      group.appendChild(h);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'file-steps';
+      for (const f of folder.files) {
+        const item = document.createElement('div');
+        item.className = 'file-item' + (f.changed ? ' changed' : '');
+        item.dataset.path = f.path;
+        const label = document.createElement('span');
+        label.className = 'step-label';
+        label.textContent = f.name;
+        item.appendChild(label);
+        if (f.changed) {
+          const badge = document.createElement('span');
+          badge.className = 'file-changed-dot';
+          badge.textContent = '●';
+          badge.title = 'Has changes in this review';
+          item.appendChild(badge);
+          item.addEventListener('click', () => showStep(f.stepIdx));
+        } else {
+          item.title = 'Load full file (no changes in this review)';
+          item.addEventListener('click', () => showFile(f.path));
+        }
+        wrap.appendChild(item);
+      }
+      group.appendChild(wrap);
+      frag.appendChild(group);
+    }
+    list.textContent = '';
+    list.appendChild(frag);
+    state.filesBuilt = true;
+    updateCollapseAllLabel();
+    // Reflect whatever the code panel is currently showing.
+    markActiveFileRow(state.viewingFile || (currentStep() && currentStep().file));
+  }
+
+  // Highlight the file row matching a path (or clear all when null). A file with
+  // several steps still highlights once, by path.
+  function markActiveFileRow(activePath) {
+    for (const el of document.querySelectorAll('#sidebar .file-item')) {
+      const active = activePath != null && el.dataset.path === activePath;
+      el.classList.toggle('active', active);
+      if (active) el.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  // ---------- full-file view in the code panel ----------
+  const EXT_LANG = {
+    js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
+    ts: 'typescript', tsx: 'typescript', json: 'json', md: 'markdown',
+    css: 'css', scss: 'scss', html: 'html', xml: 'xml', svg: 'xml',
+    py: 'python', rb: 'ruby', php: 'php', go: 'go', rs: 'rust', java: 'java',
+    c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', hpp: 'cpp', cs: 'csharp',
+    sh: 'shell', bash: 'shell', yml: 'yaml', yaml: 'yaml', toml: 'ini',
+    ini: 'ini', sql: 'sql', swift: 'swift', kt: 'kotlin',
+  };
+  function guessLang(filePath) {
+    const ext = filePath.split('.').pop().toLowerCase();
+    return EXT_LANG[ext] || 'plaintext';
+  }
+
+  async function fetchFileContent(filePath, side) {
+    const q = new URLSearchParams({ file: filePath, side });
+    const res = await fetch(`/api/file?${q}`);
+    const d = await res.json();
+    if (!res.ok || d.error) throw new Error(d.error || `HTTP ${res.status}`);
+    return d.content;
+  }
+
+  // Load an entire file into the code view. A modified file is shown as a
+  // whole-file diff (full old vs full new) so add/remove highlights are kept;
+  // an added file shows plain with the added-line wash; an unchanged file
+  // browsed from the Files view shows plain. Content is cached to avoid
+  // refetching on re-render (wrap/resize).
+  async function showFile(filePath) {
+    ensureEditors();
+    const step = state.manifest.steps.find((s) => s.file === filePath);
+    const changeKind = step
+      ? step.changeKind || (typeof step.oldCode === 'string' ? 'modified' : 'added')
+      : 'unchanged';
+    const wantDiff = changeKind === 'modified';
+
+    let cache = state.fileCache;
+    if (!cache || cache.path !== filePath) {
+      try {
+        const newContent = await fetchFileContent(filePath, 'new');
+        const oldContent = wantDiff ? await fetchFileContent(filePath, 'old') : null;
+        cache = { path: filePath, newContent, oldContent, changeKind };
+      } catch (err) {
+        showToast(`Could not load ${filePath}: ${err.message}`, 'error');
+        return;
+      }
+      state.fileCache = cache;
+    }
+
+    closeLineModal();
+    state.viewingFile = filePath;
+
+    // Header + step controls off (this is a file, not a review step).
+    $('step-file').textContent = filePath;
+    $('step-symbol').textContent = '';
+    $('context-bar').hidden = true;
+    $('comment-box').hidden = true;
+    $('comment-resizer').hidden = true;
+    $('reviewed-toggle').style.display = 'none';
+    $('btn-back-to-review').hidden = false;
+    state.newOffset = 1;
+
+    const kindEl = $('step-kind');
+    const lang = guessLang(filePath);
+
+    if (wantDiff && cache.oldContent != null) {
+      // Whole-file diff — keeps the add/remove highlights across the file.
+      $('editor-plain').hidden = true;
+      $('editor-diff').hidden = false;
+      $('diff-layout').hidden = false;
+      const lines = cache.newContent.split('\n').length;
+      $('step-lines').textContent = `(full file · ${lines} lines)`;
+      kindEl.textContent = 'modified';
+      kindEl.className = 'badge badge-modified';
+
+      const editor = state.diffEditor;
+      const prev = editor.getModel();
+      const original = monaco.editor.createModel(cache.oldContent, lang);
+      const modified = monaco.editor.createModel(cache.newContent, lang);
+      editor.setModel({ original, modified });
+      if (prev) {
+        setTimeout(() => {
+          prev.original?.dispose();
+          prev.modified?.dispose();
+        }, 1000);
+      }
+      editor.getOriginalEditor().updateOptions({ lineNumbers: 'on' });
+      editor.getModifiedEditor().updateOptions({ lineNumbers: 'on' });
+      const me = editor.getModifiedEditor();
+      me.__lineDeco?.clear();
+      setZone(me, ''); // no description zone
+      setSpacerZone(editor.getOriginalEditor(), 0);
+      me.setScrollTop(0);
+    } else {
+      // Plain full file (added or unchanged) — added files get the green wash.
+      $('editor-plain').hidden = false;
+      $('editor-diff').hidden = true;
+      $('diff-layout').hidden = true;
+      $('step-lines').textContent = `(full file · ${cache.newContent.split('\n').length} lines)`;
+      kindEl.textContent = changeKind === 'added' ? 'added' : 'file';
+      kindEl.className = changeKind === 'added' ? 'badge badge-added' : 'badge';
+
+      const editor = state.plainEditor;
+      const prev = editor.getModel();
+      const model = monaco.editor.createModel(cache.newContent, lang);
+      editor.setModel(model);
+      prev?.dispose();
+      editor.updateOptions({ lineNumbers: 'on' });
+      state.plainDecorations?.clear();
+      if (changeKind === 'added') {
+        state.plainDecorations = editor.createDecorationsCollection([
+          {
+            range: new monaco.Range(1, 1, Math.max(1, model.getLineCount()), 1),
+            options: {
+              isWholeLine: true,
+              className: 'belair-added-line',
+              linesDecorationsClassName: 'belair-added-gutter',
+            },
+          },
+        ]);
+      }
+      editor.__lineDeco?.clear();
+      editor.changeViewZones((acc) => {
+        for (const id of editor.__lineZoneIds || []) acc.removeZone(id);
+        editor.__lineZoneIds = [];
+      });
+      setZone(editor, ''); // no description zone
+      editor.setScrollTop(0);
+    }
+
+    for (const el of document.querySelectorAll('#sidebar .step-item')) el.classList.remove('active');
+    markActiveFileRow(filePath); // highlight the row in the Files view
+  }
+
+  function backToReview() {
+    state.viewingFile = null;
+    state.fileCache = null;
+    $('btn-back-to-review').hidden = true;
+    $('comment-box').hidden = false;
+    $('comment-resizer').hidden = false;
+    $('reviewed-toggle').style.display = '';
+    showStep(state.idx);
+  }
+
   // ---------- expand context on demand ----------
   const CONTEXT_STEP = 15;
 
@@ -1098,6 +1385,12 @@
       state.wordWrap = false;
     }
 
+    try {
+      state.sidebarView = localStorage.getItem(SIDEBAR_VIEW_KEY) === 'files' ? 'files' : 'steps';
+    } catch {
+      state.sidebarView = 'steps';
+    }
+
     let manifest;
     try {
       const res = await fetch('/api/manifest');
@@ -1153,6 +1446,14 @@
 
     $('btn-toggle-info').addEventListener('click', () => setAllInfo(!state.showAllInfo));
     $('btn-collapse-all').addEventListener('click', toggleCollapseAll);
+    for (const btn of document.querySelectorAll('#sidebar-view .seg-btn')) {
+      btn.addEventListener('click', () => setSidebarView(btn.dataset.view));
+    }
+    $('btn-full-file').addEventListener('click', () => {
+      const step = currentStep();
+      if (step) showFile(step.file);
+    });
+    $('btn-back-to-review').addEventListener('click', backToReview);
 
     $('btn-prev').addEventListener('click', () => showStep(state.idx - 1));
     $('btn-next').addEventListener('click', () => showStep(state.idx + 1));
@@ -1209,7 +1510,7 @@
     window.addEventListener('resize', () => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
-        if (state.manifest) showStep(state.idx);
+        rerenderCurrent();
       }, 150);
     });
 
@@ -1228,6 +1529,8 @@
     });
 
     showStep(0);
+    // Apply the persisted sidebar view (builds Files lazily if that's the default).
+    setSidebarView(state.sidebarView);
   }
 
   window.__startApp = init;

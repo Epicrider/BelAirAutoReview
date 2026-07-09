@@ -170,6 +170,39 @@ async function readContext(file, start, end, side) {
   return { start: s, end: e, total: all.length, lines: s <= e ? all.slice(s - 1, e) : [] };
 }
 
+// Build a file tree of the folders that contain changed files, listing every
+// file in them (not just changed ones), so the reviewer can browse siblings.
+async function buildTree() {
+  const manifest = JSON.parse(await fsp.readFile(manifestPath, 'utf8'));
+  const source = await getFileSource();
+  // Map changed file path -> first step index (for click-to-step).
+  const changed = new Map();
+  manifest.steps.forEach((s, i) => {
+    if (!changed.has(s.file)) changed.set(s.file, i);
+  });
+  // Relevant folders: the directory of each changed file ('' = repo root).
+  const dirs = [...new Set([...changed.keys()].map((f) => f.split('/').slice(0, -1).join('/')))];
+  dirs.sort();
+  const folders = [];
+  for (const dir of dirs) {
+    let entries;
+    try {
+      entries = await source.listDir(dir);
+    } catch (err) {
+      entries = [];
+    }
+    const files = entries
+      .filter((e) => e.type === 'file')
+      .map((e) => {
+        const full = dir ? `${dir}/${e.name}` : e.name;
+        return { name: e.name, path: full, changed: changed.has(full), stepIdx: changed.get(full) ?? null };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    folders.push({ dir, files });
+  }
+  return { folders };
+}
+
 // ---------- publishing to a GitHub PR (via the gh CLI) ----------
 const execFileP = promisify(execFile);
 
@@ -366,6 +399,32 @@ const server = http.createServer(async (req, res) => {
       }
       try {
         sendJson(res, 200, await readContext(file, start, end, side));
+      } catch (err) {
+        sendJson(res, 500, { error: err.message });
+      }
+      return;
+    }
+
+    if (pathname === '/api/tree' && req.method === 'GET') {
+      try {
+        sendJson(res, 200, await buildTree());
+      } catch (err) {
+        sendJson(res, 500, { error: err.message });
+      }
+      return;
+    }
+
+    if (pathname === '/api/file' && req.method === 'GET') {
+      const file = url.searchParams.get('file');
+      const side = url.searchParams.get('side') === 'old' ? 'old' : 'new';
+      if (!file) {
+        sendJson(res, 400, { error: 'expected file query param' });
+        return;
+      }
+      try {
+        const source = await getFileSource();
+        const content = side === 'old' ? await source.readOld(file) : await source.readNew(file);
+        sendJson(res, 200, { file, content, lineCount: content.split('\n').length });
       } catch (err) {
         sendJson(res, 500, { error: err.message });
       }

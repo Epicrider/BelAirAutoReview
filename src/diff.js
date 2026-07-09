@@ -168,6 +168,12 @@ async function collectWorking(cwd) {
         if (!hasHead) throw new Error('repository has no commits yet');
         return git(['show', `HEAD:${file}`], root);
       },
+      listDir: async (dir) => {
+        const ents = await fs.readdir(path.join(root, dir || '.'), { withFileTypes: true });
+        return ents
+          .filter((e) => e.name !== '.git')
+          .map((e) => ({ name: e.name, type: e.isDirectory() ? 'dir' : 'file' }));
+      },
     },
     meta: {
       mode: 'working',
@@ -219,6 +225,18 @@ async function collectRange(rangeArg, cwd) {
       readOld: (file) => {
         if (baseSha === EMPTY_TREE_SHA) return Promise.reject(new Error('no old version (empty tree)'));
         return git(['show', `${baseSha}:${file}`], root);
+      },
+      listDir: async (dir) => {
+        const prefix = dir ? dir.replace(/\/*$/, '/') : '';
+        const out = await git(['ls-tree', headSha, prefix], root);
+        return out
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => {
+            const [meta, p = ''] = line.split('\t');
+            const type = meta.split(' ')[1];
+            return { name: p.slice(prefix.length), type: type === 'tree' ? 'dir' : 'file' };
+          });
       },
     },
     meta: {
@@ -286,6 +304,14 @@ async function collectPr(prArg, repoArg, cwd) {
     source: {
       readNew: (file) => fetchFile(headRepo, headSha, file),
       readOld: (file) => fetchFile(baseRepo, baseSha, file),
+      listDir: async (dir) => {
+        const encoded = (dir || '').split('/').filter(Boolean).map(encodeURIComponent).join('/');
+        const json = JSON.parse(
+          await gh(['api', `repos/${headRepo}/contents/${encoded}?ref=${headSha}`])
+        );
+        const arr = Array.isArray(json) ? json : [];
+        return arr.map((e) => ({ name: e.name, type: e.type === 'dir' ? 'dir' : 'file' }));
+      },
     },
     meta: {
       mode: 'pr',

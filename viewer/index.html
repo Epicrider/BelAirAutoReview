@@ -34,12 +34,22 @@
 
   <div id="layout">
     <aside id="sidebar" aria-label="All steps">
+      <div id="sidebar-viewbar">
+        <div id="sidebar-view" class="segmented" role="group" aria-label="Sidebar view">
+          <button class="seg-btn active" data-view="steps" title="Review steps">Steps</button>
+          <button class="seg-btn" data-view="files"
+            title="Browse all files in the changed folders">Files</button>
+        </div>
+      </div>
       <div id="sidebar-toolbar">
-        <button id="btn-collapse-all" title="Collapse or expand all file groups">Collapse all</button>
+        <button id="btn-collapse-all" title="Collapse or expand all groups">Collapse all</button>
         <button id="btn-toggle-info" hidden
           title="Show or hide every step's order-explanation note">Show all info</button>
       </div>
-      <div id="sidebar-list"></div>
+      <div id="sidebar-list">
+        <div id="steps-list"></div>
+        <div id="files-list" hidden></div>
+      </div>
     </aside>
     <div id="sidebar-resizer" class="resizer resizer-x" title="Drag to resize"
       role="separator" aria-orientation="vertical"></div>
@@ -51,6 +61,7 @@
         <span id="step-kind" class="badge"></span>
         <span id="step-symbol" class="mono dim"></span>
         <span class="step-hint dim">click a line number to comment on that line</span>
+        <button id="btn-back-to-review" hidden title="Return to the review steps">← Back to review</button>
         <label id="reviewed-toggle" title="Mark this step reviewed">
           <input type="checkbox" id="reviewed-check" /> Reviewed
         </label>
@@ -61,6 +72,7 @@
         <button id="btn-ctx-above" title="Show more lines above">+15 above</button>
         <button id="btn-ctx-below" title="Show more lines below">+15 below</button>
         <button id="btn-ctx-reset" title="Collapse back to the chunk" hidden>Reset</button>
+        <button id="btn-full-file" title="Load this entire file in the code view">Full file</button>
         <span id="ctx-status" class="dim"></span>
       </div>
 
