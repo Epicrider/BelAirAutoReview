@@ -16,10 +16,18 @@
 import { parseArgs } from 'node:util';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { collectDiff } from '../src/diff.js';
 import { chunkFiles } from '../src/chunker.js';
 import { buildManifest, validateManifest } from '../src/manifest.js';
 import { reviewDir, reviewKey, writeCurrentPointer } from '../src/review-paths.js';
+
+const serverPath = path.join(
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
+  'viewer',
+  'server.js'
+);
+const shQuote = (p) => (/[\s"']/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p);
 
 const { values } = parseArgs({
   options: {
@@ -292,7 +300,9 @@ try {
   await fs.writeFile(outPath, JSON.stringify(manifest, null, 2) + '\n');
   await writeCurrentPointer(cwd, key);
   console.log(`\nWrote manifest with ${manifest.steps.length} step(s) to ${outPath}`);
-  console.log('View it with: node <BelAirAutoReview>/viewer/server.js  (from this repo)');
+  console.log('\nTo view it, run this exact command in your terminal (works from anywhere):\n');
+  console.log(`  node ${shQuote(serverPath)} --repo ${shQuote(cwd)}\n`);
+  console.log('Then open http://localhost:4173 . Leave it running; new reviews appear on refresh.');
 } catch (err) {
   console.error(`error: ${err.message}`);
   process.exit(1);

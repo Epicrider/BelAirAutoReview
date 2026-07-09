@@ -119,14 +119,15 @@ succeeds.
 the user the exact command to run themselves.
 
 `write-manifest.js` prints that exact command at the end of Step 5, as an absolute
-path, e.g.:
+path that pins the reviewed repo with `--repo` so it works from any directory, e.g.:
 
 ```
-node /abs/path/to/BelAirAutoReview/viewer/server.js
+node /abs/path/to/BelAirAutoReview/viewer/server.js --repo /abs/path/to/reviewed-repo
 ```
 
 Copy that line verbatim from the script's output and give it to the user (do not
-paraphrase or use `$SKILL_DIR`/placeholders — they need a command that runs as-is).
+paraphrase, drop `--repo`, or use `$SKILL_DIR`/placeholders — they need a command
+that runs as-is from wherever their terminal happens to be).
 Tell them to run it in a terminal, open http://localhost:4173, and **leave it
 running**: the viewer serves whichever review is active and lists all reviews, so
 each future diff shows up on refresh — no need to restart it. Comments they type
