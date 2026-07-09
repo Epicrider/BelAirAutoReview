@@ -457,6 +457,10 @@ body.dark .belair-added-gutter { background: rgba(34, 197, 94, 0.8); }
   cursor: pointer;
 }
 
+/* delete-review button */
+#btn-delete-review { flex: none; font-size: 13px; }
+#btn-delete-review:hover:not(:disabled) { border-color: #b91c1c; color: #b91c1c; }
+
 /* theme selector */
 #theme-select {
   flex: none;

@@ -1503,6 +1503,7 @@
     });
 
     $('review-select').addEventListener('change', () => loadReview($('review-select').value));
+    $('btn-delete-review').addEventListener('click', deleteCurrentReview);
 
     await initReviews();
   }
@@ -1515,23 +1516,30 @@
     return r.steps ? `${label} · ${r.steps} steps` : label;
   }
 
-  async function initReviews() {
-    const data = await fetchJsonSafe('/api/reviews', { reviews: [], active: '' });
+  function populateReviewPicker(reviews) {
     const sel = $('review-select');
     sel.textContent = '';
-    if (!data.reviews.length) {
-      sel.hidden = true;
-      showError('No reviews found. Generate one (skill or bin/generate-manifest.js), then refresh.');
-      $('progress').textContent = 'no reviews';
-      return;
-    }
-    for (const r of data.reviews) {
+    for (const r of reviews) {
       const opt = document.createElement('option');
       opt.value = r.key;
       opt.textContent = reviewLabel(r);
       sel.appendChild(opt);
     }
-    sel.hidden = false;
+    const has = reviews.length > 0;
+    sel.hidden = !has;
+    $('btn-delete-review').hidden = !has;
+  }
+
+  async function initReviews() {
+    const data = await fetchJsonSafe('/api/reviews', { reviews: [], active: '' });
+    if (!data.reviews.length) {
+      populateReviewPicker([]);
+      showError('No reviews found. Generate one (skill or bin/generate-manifest.js), then refresh.');
+      $('progress').textContent = 'no reviews';
+      return;
+    }
+    populateReviewPicker(data.reviews);
+    const sel = $('review-select');
 
     const keys = data.reviews.map((r) => r.key);
     let stored = null;
@@ -1614,6 +1622,51 @@
     buildSidebar();
     showStep(0);
     setSidebarView(state.sidebarView);
+  }
+
+  // Delete the currently selected review (its manifest + all saved comments),
+  // then switch to another review or show the empty state.
+  async function deleteCurrentReview() {
+    if (state.review == null) return;
+    const label = $('review-select').selectedOptions[0]?.textContent || state.review || 'this review';
+    if (
+      !confirm(
+        `Delete the review "${label}"?\n` +
+          'This removes its manifest and all comments/notes for it, and cannot be undone.'
+      )
+    ) {
+      return;
+    }
+    let data;
+    try {
+      const res = await fetch(apiUrl('/api/review'), { method: 'DELETE' });
+      data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    } catch (err) {
+      showToast(`Delete failed: ${err.message}`, 'error');
+      return;
+    }
+    showToast('Review deleted.', 'success');
+    try {
+      localStorage.removeItem(REVIEW_KEY);
+    } catch {
+      /* storage disabled */
+    }
+
+    populateReviewPicker(data.reviews);
+    if (!data.reviews.length) {
+      state.review = null;
+      state.manifest = null;
+      $('steps-list').textContent = '';
+      $('files-list').textContent = '';
+      $('progress').textContent = 'no reviews';
+      $('target-info').textContent = '';
+      showError('No reviews left. Generate one, then refresh.');
+      return;
+    }
+    const next = data.reviews.some((r) => r.key === data.active) ? data.active : data.reviews[0].key;
+    $('review-select').value = next;
+    await loadReview(next);
   }
 
   window.__startApp = init;

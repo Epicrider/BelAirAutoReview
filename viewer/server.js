@@ -198,6 +198,43 @@ async function listReviews() {
   return { reviews, active };
 }
 
+async function writeCurrent(key) {
+  const doc = { key, dir: path.join('.review', key), updatedAt: new Date().toISOString() };
+  await writeJsonFile(path.join(REVIEW_ROOT, 'current.json'), doc);
+}
+
+// Delete a review's stored data. For a keyed review this removes its whole
+// .review/<key>/ directory; for the legacy flat layout ('') it removes the flat
+// files only (not the whole .review root). Fixes current.json if it pointed at
+// the deleted review.
+async function deleteReview(key) {
+  const dir = reviewDirForKey(key);
+  if (!dir) {
+    const e = new Error('invalid review key');
+    e.status = 400;
+    throw e;
+  }
+  if (!key) {
+    const flatFiles = [
+      'manifest.json', 'chunks.json', 'review-notes.json',
+      'comments.json', 'line-comments.json', 'reviewed.json', 'summary.md',
+    ];
+    for (const f of flatFiles) await fsp.rm(path.join(REVIEW_ROOT, f), { force: true });
+  } else {
+    await fsp.rm(dir, { recursive: true, force: true });
+  }
+  fileSources.delete(key);
+
+  const cur = await readCurrent();
+  if (cur && (cur.key ?? '') === key) {
+    const { reviews } = await listReviews();
+    if (reviews.length) await writeCurrent(reviews[0].key);
+    else await fsp.rm(path.join(REVIEW_ROOT, 'current.json'), { force: true });
+  }
+  const listed = await listReviews();
+  return { ok: true, deleted: key, ...listed };
+}
+
 // ---------- file source per review (for context + full-file view) ----------
 const fileSources = new Map(); // key -> { readNew, readOld, listDir }
 async function getFileSource(key) {
@@ -397,6 +434,17 @@ const server = http.createServer(async (req, res) => {
   try {
     if (pathname === '/api/reviews' && req.method === 'GET') {
       sendJson(res, 200, await listReviews());
+      return;
+    }
+
+    if (pathname === '/api/review' && req.method === 'DELETE') {
+      const key = await keyForRequest(url);
+      if (key === null) return sendJson(res, 400, { error: 'invalid review key' });
+      try {
+        sendJson(res, 200, await deleteReview(key));
+      } catch (err) {
+        sendJson(res, err.status || 500, { error: err.message });
+      }
       return;
     }
 
