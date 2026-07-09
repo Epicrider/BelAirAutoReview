@@ -25,6 +25,7 @@
     collapsedFiles: new Set(), // sidebar file groups collapsed by the user
     theme: 'auto', // 'auto' | 'light' | 'dark' | 'sayori-light' | 'sayori-dark'
     sidebarView: 'steps', // 'steps' | 'files'
+    review: null, // active review key ('' = legacy flat manifest), null before load
     filesBuilt: false, // Files view built once and cached
     viewingFile: null, // path of a full file loaded in the code view, or null
     fileCache: null, // { path, newContent, oldContent, changeKind } for the open file
@@ -38,9 +39,29 @@
   const WRAP_KEY = 'belair.wordWrap';
   const THEME_KEY = 'belair.theme';
   const SIDEBAR_VIEW_KEY = 'belair.sidebarView';
+  const REVIEW_KEY = 'belair.review';
 
   const $ = (id) => document.getElementById(id);
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  // Build an API URL that carries the active review key so every request targets
+  // the right .review/<key>/ directory.
+  function apiUrl(pathname, params = {}) {
+    const usp = new URLSearchParams(params);
+    if (state.review != null) usp.set('review', state.review);
+    const qs = usp.toString();
+    return qs ? `${pathname}?${qs}` : pathname;
+  }
+
+  async function fetchJsonSafe(url, fallback) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return fallback;
+      return await res.json();
+    } catch {
+      return fallback;
+    }
+  }
 
   function escapeHtml(s) {
     return String(s)
@@ -450,7 +471,7 @@
 
   async function saveLineComment(step, realLine, text) {
     try {
-      const res = await fetch('/api/line-comments', {
+      const res = await fetch(apiUrl('/api/line-comments'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: step.id, line: realLine, text }),
@@ -883,7 +904,7 @@
   async function saveComment(id, text) {
     $('save-state').textContent = 'saving…';
     try {
-      const res = await fetch('/api/comments', {
+      const res = await fetch(apiUrl('/api/comments'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, text }),
@@ -918,7 +939,7 @@
     btn.disabled = true;
     btn.textContent = 'Publishing…';
     try {
-      const res = await fetch('/api/publish', { method: 'POST' });
+      const res = await fetch(apiUrl('/api/publish'), { method: 'POST' });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
       const fileLevel = body.results.filter((r) => r.status === 'posted-file').length;
@@ -946,23 +967,24 @@
     $('summary-backdrop').hidden = true;
   }
 
+  // Wire summary controls once.
   function initSummary() {
-    const summary = (state.manifest && typeof state.manifest.summary === 'string'
-      ? state.manifest.summary
-      : ''
-    ).trim();
-    // No agent summary → no button; nothing for the reviewer to open.
-    if (!summary) {
-      $('btn-summary').hidden = true;
-      return;
-    }
-    $('btn-summary').hidden = false;
-    $('summary-body').textContent = summary;
     $('btn-summary').addEventListener('click', openSummary);
     $('summary-close').addEventListener('click', closeSummary);
     $('summary-backdrop').addEventListener('click', (e) => {
       if (e.target === $('summary-backdrop')) closeSummary();
     });
+  }
+
+  // Reflect the current manifest's summary (called per review load).
+  function refreshSummary() {
+    const summary = (state.manifest && typeof state.manifest.summary === 'string'
+      ? state.manifest.summary
+      : ''
+    ).trim();
+    closeSummary();
+    $('btn-summary').hidden = !summary;
+    $('summary-body').textContent = summary;
   }
 
   // ---------- reviewed state & progress ----------
@@ -987,7 +1009,7 @@
     refreshReviewedMarks();
     updateProgress();
     try {
-      const res = await fetch('/api/reviewed', {
+      const res = await fetch(apiUrl('/api/reviewed'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, reviewed }),
@@ -1058,7 +1080,7 @@
     list.textContent = 'Loading files…';
     let tree;
     try {
-      tree = await (await fetch('/api/tree')).json();
+      tree = await (await fetch(apiUrl('/api/tree'))).json();
       if (tree.error) throw new Error(tree.error);
     } catch (err) {
       list.textContent = '';
@@ -1147,8 +1169,7 @@
   }
 
   async function fetchFileContent(filePath, side) {
-    const q = new URLSearchParams({ file: filePath, side });
-    const res = await fetch(`/api/file?${q}`);
+    const res = await fetch(apiUrl('/api/file', { file: filePath, side }));
     const d = await res.json();
     if (!res.ok || d.error) throw new Error(d.error || `HTTP ${res.status}`);
     return d.content;
@@ -1280,8 +1301,9 @@
 
   async function fetchContext(file, start, end, side) {
     if (start > end) return { lines: [] };
-    const q = new URLSearchParams({ file, start: String(start), end: String(end), side });
-    const res = await fetch(`/api/context?${q}`);
+    const res = await fetch(
+      apiUrl('/api/context', { file, start: String(start), end: String(end), side })
+    );
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
     return body;
@@ -1391,58 +1413,10 @@
       state.sidebarView = 'steps';
     }
 
-    let manifest;
-    try {
-      const res = await fetch('/api/manifest');
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-      manifest = body;
-    } catch (err) {
-      showError(`Could not load manifest: ${err.message}`);
-      $('progress').textContent = 'no manifest';
-      return;
-    }
-    if (!Array.isArray(manifest.steps) || manifest.steps.length === 0) {
-      showError('Manifest has no steps.');
-      return;
-    }
-    state.manifest = manifest;
-
-    try {
-      state.comments = await (await fetch('/api/comments')).json();
-    } catch {
-      state.comments = {};
-    }
-
-    try {
-      state.lineComments = await (await fetch('/api/line-comments')).json();
-    } catch {
-      state.lineComments = {};
-    }
-
-    try {
-      state.reviewed = await (await fetch('/api/reviewed')).json();
-    } catch {
-      state.reviewed = {};
-    }
-
-    const target = manifest.source
-      ? `${manifest.source.mode ?? ''} — ${manifest.source.target ?? ''}`
-      : '';
-    $('target-info').textContent = target;
-    $('target-info').title = manifest.generatedAt ? `generated ${manifest.generatedAt}` : '';
-
-    // Publishing to a PR is only meaningful for a PR-mode manifest.
-    if (manifest.source && manifest.source.mode === 'pr') {
-      const pubBtn = $('btn-publish');
-      pubBtn.hidden = false;
-      pubBtn.addEventListener('click', publishToPr);
-    }
-
-    buildSidebar();
     initResizers();
     initSummary();
     initLineModal();
+    $('btn-publish').addEventListener('click', publishToPr);
 
     $('btn-toggle-info').addEventListener('click', () => setAllInfo(!state.showAllInfo));
     $('btn-collapse-all').addEventListener('click', toggleCollapseAll);
@@ -1528,8 +1502,117 @@
       saveComment(step.id, $('comment').value);
     });
 
+    $('review-select').addEventListener('change', () => loadReview($('review-select').value));
+
+    await initReviews();
+  }
+
+  // ---------- review picker (multiple diffs in one server) ----------
+  const LAST_ACTIVE_KEY = 'belair.lastActive';
+
+  function reviewLabel(r) {
+    const label = r.target || r.key || '(review)';
+    return r.steps ? `${label} · ${r.steps} steps` : label;
+  }
+
+  async function initReviews() {
+    const data = await fetchJsonSafe('/api/reviews', { reviews: [], active: '' });
+    const sel = $('review-select');
+    sel.textContent = '';
+    if (!data.reviews.length) {
+      sel.hidden = true;
+      showError('No reviews found. Generate one (skill or bin/generate-manifest.js), then refresh.');
+      $('progress').textContent = 'no reviews';
+      return;
+    }
+    for (const r of data.reviews) {
+      const opt = document.createElement('option');
+      opt.value = r.key;
+      opt.textContent = reviewLabel(r);
+      sel.appendChild(opt);
+    }
+    sel.hidden = false;
+
+    const keys = data.reviews.map((r) => r.key);
+    let stored = null;
+    let lastActive = null;
+    try {
+      stored = localStorage.getItem(REVIEW_KEY);
+      lastActive = localStorage.getItem(LAST_ACTIVE_KEY);
+    } catch {
+      /* storage disabled */
+    }
+    // A freshly generated/changed active review wins (so new diffs show up on
+    // refresh); otherwise keep the user's manual selection.
+    let chosen;
+    if (data.active !== lastActive && keys.includes(data.active)) chosen = data.active;
+    else if (stored != null && keys.includes(stored)) chosen = stored;
+    else chosen = keys.includes(data.active) ? data.active : keys[0];
+    try {
+      localStorage.setItem(LAST_ACTIVE_KEY, data.active ?? '');
+    } catch {
+      /* storage disabled */
+    }
+
+    sel.value = chosen;
+    await loadReview(chosen);
+  }
+
+  // Load a review's manifest + saved state and render it. Reused when switching
+  // reviews via the picker.
+  async function loadReview(key) {
+    state.review = key;
+    try {
+      localStorage.setItem(REVIEW_KEY, key);
+    } catch {
+      /* storage disabled */
+    }
+    $('error-banner').hidden = true;
+
+    let manifest;
+    try {
+      const res = await fetch(apiUrl('/api/manifest'));
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      manifest = body;
+    } catch (err) {
+      showError(`Could not load manifest: ${err.message}`);
+      $('progress').textContent = 'no manifest';
+      return;
+    }
+    if (!Array.isArray(manifest.steps) || manifest.steps.length === 0) {
+      showError('This review has no steps.');
+      $('progress').textContent = 'empty review';
+      return;
+    }
+    state.manifest = manifest;
+    state.comments = await fetchJsonSafe(apiUrl('/api/comments'), {});
+    state.lineComments = await fetchJsonSafe(apiUrl('/api/line-comments'), {});
+    state.reviewed = await fetchJsonSafe(apiUrl('/api/reviewed'), {});
+
+    // Reset per-review view state.
+    state.idx = 0;
+    state.overrides = {};
+    state.expand = {};
+    state.viewingFile = null;
+    state.fileCache = null;
+    state.filesBuilt = false;
+    $('files-list').textContent = '';
+    $('btn-back-to-review').hidden = true;
+    $('comment-box').hidden = false;
+    $('comment-resizer').hidden = false;
+    $('reviewed-toggle').style.display = '';
+
+    const target = manifest.source
+      ? `${manifest.source.mode ?? ''} — ${manifest.source.target ?? ''}`
+      : '';
+    $('target-info').textContent = target;
+    $('target-info').title = manifest.generatedAt ? `generated ${manifest.generatedAt}` : '';
+    $('btn-publish').hidden = !(manifest.source && manifest.source.mode === 'pr');
+
+    refreshSummary();
+    buildSidebar();
     showStep(0);
-    // Apply the persisted sidebar view (builds Files lazily if that's the default).
     setSidebarView(state.sidebarView);
   }
 

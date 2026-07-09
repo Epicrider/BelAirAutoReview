@@ -11,8 +11,15 @@
 import { parseArgs } from 'node:util';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildManifest, validateManifest } from '../src/manifest.js';
 import { readCurrentPointer } from '../src/review-paths.js';
+
+// Real repo root, resolved through the symlink Node followed to load this file,
+// so the printed command is an exact, copy-pasteable absolute path.
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const serverPath = path.join(repoRoot, 'viewer', 'server.js');
+const quote = (p) => (/[\s"']/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p);
 
 const { values } = parseArgs({
   options: {
@@ -69,4 +76,6 @@ if (validation.length) {
 await fs.mkdir(path.dirname(outPath), { recursive: true });
 await fs.writeFile(outPath, JSON.stringify(manifest, null, 2) + '\n');
 console.log(`Wrote manifest with ${manifest.steps.length} step(s) to ${outPath}`);
-console.log('View it with: node <BelAirAutoReview>/viewer/server.js  (from this repo)');
+console.log('\nTo view it, run this exact command in your terminal:\n');
+console.log(`  node ${quote(serverPath)}\n`);
+console.log('Then open http://localhost:4173 . Leave it running; new reviews appear on refresh.');

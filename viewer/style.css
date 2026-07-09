@@ -443,6 +443,20 @@ body.dark .belair-added-gutter { background: rgba(34, 197, 94, 0.8); }
 #btn-publish { flex: none; font-size: 13px; }
 #btn-publish:disabled { opacity: 0.5; }
 
+/* review picker */
+#review-select {
+  flex: none;
+  max-width: 320px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
 /* theme selector */
 #theme-select {
   flex: none;
