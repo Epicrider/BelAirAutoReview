@@ -402,6 +402,14 @@ export async function chunkFiles(files, source) {
       }
       chunks.push(chunk);
     }
+
+    // Release tree-sitter WASM resources for this file (they don't get GC'd).
+    try {
+      tree?.delete?.();
+      parser?.delete?.();
+    } catch {
+      /* best-effort cleanup */
+    }
   }
 
   return { chunks, warnings };

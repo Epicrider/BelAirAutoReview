@@ -17,7 +17,13 @@ if (values.help || positionals.length === 0) {
 }
 
 const filePath = path.resolve(positionals[0]);
-const doc = JSON.parse(await fs.readFile(filePath, 'utf8'));
+let doc;
+try {
+  doc = JSON.parse(await fs.readFile(filePath, 'utf8'));
+} catch (err) {
+  console.error(`error: cannot read/parse ${filePath}: ${err.message}`);
+  process.exit(1);
+}
 const items = doc.chunks ?? doc.steps ?? [];
 
 if (items.length === 0) {

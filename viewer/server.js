@@ -153,6 +153,15 @@ async function sendFile(res, filePath) {
   }
 }
 
+/** A repo-relative file path, or null if it escapes the repo / is unsafe. */
+function safeRel(file) {
+  if (typeof file !== 'string' || !file || file.includes('\0')) return null;
+  if (path.isAbsolute(file)) return null;
+  const norm = path.posix.normalize(file.replace(/\\/g, '/'));
+  if (norm === '..' || norm.startsWith('../')) return null;
+  return file;
+}
+
 /** Resolve a URL sub-path under a root dir, rejecting traversal. */
 function safeJoin(root, subPath) {
   const resolved = path.resolve(root, '.' + path.posix.normalize('/' + subPath));
@@ -173,6 +182,22 @@ async function writeJsonFile(p, data) {
   const tmp = p + '.tmp';
   await fsp.writeFile(tmp, JSON.stringify(data, null, 2) + '\n');
   await fsp.rename(tmp, p);
+}
+
+// Serialize read-modify-write per file path so concurrent saves (e.g. rapid
+// autosave) don't lose updates or collide on the temp file.
+const fileLocks = new Map();
+function withFileLock(p, fn) {
+  const prev = fileLocks.get(p) || Promise.resolve();
+  const next = prev.then(fn, fn);
+  fileLocks.set(
+    p,
+    next.then(
+      () => {},
+      () => {}
+    )
+  );
+  return next;
 }
 
 // ---------- reviews listing ----------
@@ -497,11 +522,13 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: 'expected {id: string, text: string}' });
         return;
       }
-      const comments = await readJsonFile(p.comments, {});
       const text = String(body.text ?? '');
-      if (text.trim() === '') delete comments[body.id];
-      else comments[body.id] = text;
-      await writeJsonFile(p.comments, comments);
+      await withFileLock(p.comments, async () => {
+        const comments = await readJsonFile(p.comments, {});
+        if (text.trim() === '') delete comments[body.id];
+        else comments[body.id] = text;
+        await writeJsonFile(p.comments, comments);
+      });
       sendJson(res, 200, { ok: true, saved: text.trim() !== '' });
       return;
     }
@@ -521,14 +548,16 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: 'expected {id: string, line: int, text: string}' });
         return;
       }
-      const data = await readJsonFile(p.lineComments, {});
       const text = String(body.text ?? '');
-      const forStep = data[body.id] || {};
-      if (text.trim() === '') delete forStep[body.line];
-      else forStep[body.line] = text;
-      if (Object.keys(forStep).length) data[body.id] = forStep;
-      else delete data[body.id];
-      await writeJsonFile(p.lineComments, data);
+      await withFileLock(p.lineComments, async () => {
+        const data = await readJsonFile(p.lineComments, {});
+        const forStep = data[body.id] || {};
+        if (text.trim() === '') delete forStep[body.line];
+        else forStep[body.line] = text;
+        if (Object.keys(forStep).length) data[body.id] = forStep;
+        else delete data[body.id];
+        await writeJsonFile(p.lineComments, data);
+      });
       sendJson(res, 200, { ok: true, saved: text.trim() !== '' });
       return;
     }
@@ -536,12 +565,12 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/context' && req.method === 'GET') {
       const key = await keyForRequest(url);
       if (key === null) return sendJson(res, 400, { error: 'invalid review key' });
-      const file = url.searchParams.get('file');
+      const file = safeRel(url.searchParams.get('file'));
       const start = parseInt(url.searchParams.get('start'), 10);
       const end = parseInt(url.searchParams.get('end'), 10);
       const side = url.searchParams.get('side') === 'old' ? 'old' : 'new';
       if (!file || !Number.isInteger(start) || !Number.isInteger(end)) {
-        sendJson(res, 400, { error: 'expected file, start, end query params' });
+        sendJson(res, 400, { error: 'expected valid file, start, end query params' });
         return;
       }
       try {
@@ -566,10 +595,10 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/file' && req.method === 'GET') {
       const key = await keyForRequest(url);
       if (key === null) return sendJson(res, 400, { error: 'invalid review key' });
-      const file = url.searchParams.get('file');
+      const file = safeRel(url.searchParams.get('file'));
       const side = url.searchParams.get('side') === 'old' ? 'old' : 'new';
       if (!file) {
-        sendJson(res, 400, { error: 'expected file query param' });
+        sendJson(res, 400, { error: 'expected a valid, repo-relative file query param' });
         return;
       }
       try {
@@ -597,10 +626,12 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: 'expected {id: string, reviewed: bool}' });
         return;
       }
-      const data = await readJsonFile(p.reviewed, {});
-      if (body.reviewed) data[body.id] = true;
-      else delete data[body.id];
-      await writeJsonFile(p.reviewed, data);
+      await withFileLock(p.reviewed, async () => {
+        const data = await readJsonFile(p.reviewed, {});
+        if (body.reviewed) data[body.id] = true;
+        else delete data[body.id];
+        await writeJsonFile(p.reviewed, data);
+      });
       sendJson(res, 200, { ok: true, reviewed: !!body.reviewed });
       return;
     }

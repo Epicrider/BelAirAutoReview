@@ -609,6 +609,7 @@
   }
 
   function showStep(i) {
+    if (!state.manifest) return; // no active review (e.g. after deleting the last one)
     closeLineModal(); // drop any open line-comment editor from the previous step
     if (state.viewingFile) {
       // Leaving the full-file view; restore the step controls.
@@ -921,6 +922,7 @@
 
   // ---------- publish to PR ----------
   async function publishToPr() {
+    if (!state.manifest) return;
     const btn = $('btn-publish');
     const count = Object.values(state.comments).filter((t) => t && t.trim()).length;
     if (count === 0) {
@@ -1003,6 +1005,7 @@
   }
 
   async function setReviewed(id, reviewed) {
+    if (!state.manifest) return;
     if (reviewed) state.reviewed[id] = true;
     else delete state.reviewed[id];
     // Reflect immediately; persistence is best-effort.
@@ -1031,6 +1034,7 @@
   }
 
   function jumpToNextUnreviewed() {
+    if (!state.manifest) return;
     const steps = state.manifest.steps;
     for (let k = 1; k <= steps.length; k++) {
       const j = (state.idx + k) % steps.length;
@@ -1436,6 +1440,7 @@
     $('btn-ctx-below').addEventListener('click', () => expandContext('below'));
     $('btn-ctx-reset').addEventListener('click', () => expandContext('reset'));
     $('reviewed-check').addEventListener('change', (e) => {
+      if (!state.manifest) return;
       setReviewed(state.manifest.steps[state.idx].id, e.target.checked);
     });
 
@@ -1472,6 +1477,7 @@
       else if (e.key === 'u') jumpToNextUnreviewed();
       else if (e.key === 'w') setWordWrap(!state.wordWrap);
       else if (e.key === 'r') {
+        if (!state.manifest) return;
         const check = $('reviewed-check');
         check.checked = !check.checked;
         setReviewed(state.manifest.steps[state.idx].id, check.checked);
@@ -1489,6 +1495,7 @@
     });
 
     $('comment').addEventListener('input', () => {
+      if (!state.manifest || state.viewingFile) return;
       const step = state.manifest.steps[state.idx];
       $('save-state').textContent = 'unsaved…';
       clearTimeout(state.saveTimer);
@@ -1497,6 +1504,7 @@
     });
     // Flush pending edits when leaving the field.
     $('comment').addEventListener('blur', () => {
+      if (!state.manifest || state.viewingFile) return;
       const step = state.manifest.steps[state.idx];
       clearTimeout(state.saveTimer);
       saveComment(step.id, $('comment').value);
@@ -1570,6 +1578,7 @@
   // reviews via the picker.
   async function loadReview(key) {
     state.review = key;
+    state.manifest = null; // inert until the new manifest loads (guards handlers)
     try {
       localStorage.setItem(REVIEW_KEY, key);
     } catch {
