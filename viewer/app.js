@@ -482,6 +482,7 @@
       else forStep[realLine] = text;
       if (Object.keys(forStep).length) state.lineComments[step.id] = forStep;
       else delete state.lineComments[step.id];
+      refreshCommentDots();
     } catch (err) {
       showToast(`Line comment save failed: ${err.message}`, 'error');
       return;
@@ -797,7 +798,7 @@
         commentDot.dataset.stepId = s.id;
         commentDot.textContent = '💬';
         commentDot.title = 'Has a comment';
-        commentDot.style.visibility = state.comments[s.id] ? 'visible' : 'hidden';
+        commentDot.style.visibility = stepHasAnyComment(s.id) ? 'visible' : 'hidden';
         icons.appendChild(commentDot);
 
         if (s.orderRationale) {
@@ -895,9 +896,24 @@
     }
   }
 
+  // Step-level note or any per-line comment counts as "has a comment".
+  function stepHasAnyComment(stepId) {
+    if (state.comments[stepId]) return true;
+    const lines = state.lineComments[stepId];
+    return !!(lines && Object.keys(lines).length);
+  }
+
+  function fileHasAnyComment(filePath) {
+    const steps = state.manifest?.steps || [];
+    return steps.some((s) => s.file === filePath && stepHasAnyComment(s.id));
+  }
+
   function refreshCommentDots() {
     for (const dot of document.querySelectorAll('#sidebar .icon-comment')) {
-      dot.style.visibility = state.comments[dot.dataset.stepId] ? 'visible' : 'hidden';
+      const has = dot.dataset.filePath
+        ? fileHasAnyComment(dot.dataset.filePath)
+        : stepHasAnyComment(dot.dataset.stepId);
+      dot.style.visibility = has ? 'visible' : 'hidden';
     }
   }
 
@@ -1123,17 +1139,27 @@
         label.className = 'step-label';
         label.textContent = f.name;
         item.appendChild(label);
+        const icons = document.createElement('span');
+        icons.className = 'step-icons';
         if (f.changed) {
           const badge = document.createElement('span');
           badge.className = 'file-changed-dot';
           badge.textContent = '●';
           badge.title = 'Has changes in this review';
-          item.appendChild(badge);
+          icons.appendChild(badge);
           item.addEventListener('click', () => showStep(f.stepIdx));
         } else {
           item.title = 'Load full file (no changes in this review)';
           item.addEventListener('click', () => showFile(f.path));
         }
+        const commentDot = document.createElement('span');
+        commentDot.className = 'icon-comment';
+        commentDot.dataset.filePath = f.path;
+        commentDot.textContent = '💬';
+        commentDot.title = 'Has a comment';
+        commentDot.style.visibility = fileHasAnyComment(f.path) ? 'visible' : 'hidden';
+        icons.appendChild(commentDot);
+        item.appendChild(icons);
         wrap.appendChild(item);
       }
       group.appendChild(wrap);
